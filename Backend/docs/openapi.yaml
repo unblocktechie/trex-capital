@@ -1,0 +1,1325 @@
+openapi: 3.0.3
+info:
+  title: Trex Launchpad Backend API
+  version: 1.0.0
+  description: Versioned authentication, RBAC, and master-data APIs for Trex Launchpad.
+servers:
+  - url: http://localhost:3000
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Users
+  - name: Roles
+  - name: Menus
+  - name: Permissions
+  - name: General Settings
+  - name: Locations
+  - name: Organization
+  - name: Token Creation
+  - name: Admin Organizations
+  - name: Investor Claims
+  - name: Identity Registry
+  - name: Token Purchases
+  - name: Token Redemptions
+  - name: Investor Invitations
+
+x-list-operation: &listOperation
+  security: [{ bearerAuth: [] }]
+  parameters:
+    - { $ref: '#/components/parameters/Page' }
+    - { $ref: '#/components/parameters/Limit' }
+    - { $ref: '#/components/parameters/Search' }
+    - { $ref: '#/components/parameters/SortBy' }
+    - { $ref: '#/components/parameters/SortOrder' }
+  responses:
+    '200': { description: Paginated records, content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+    '401': { $ref: '#/components/responses/Unauthorized' }
+    '403': { $ref: '#/components/responses/Forbidden' }
+x-get-operation: &getOperation
+  security: [{ bearerAuth: [] }]
+  responses:
+    '200': { description: Record returned, content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+    '401': { $ref: '#/components/responses/Unauthorized' }
+    '403': { $ref: '#/components/responses/Forbidden' }
+    '404': { $ref: '#/components/responses/NotFound' }
+x-delete-operation: &deleteOperation
+  security: [{ bearerAuth: [] }]
+  responses:
+    '200': { description: Record soft-deleted, content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+    '401': { $ref: '#/components/responses/Unauthorized' }
+    '403': { $ref: '#/components/responses/Forbidden' }
+    '404': { $ref: '#/components/responses/NotFound' }
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: API health check
+      responses:
+        '200':
+          description: API is running
+          content:
+            application/json:
+              example:
+                success: true
+                message: Trex Launchpad API is healthy.
+                data: { status: UP, uptimeSeconds: 42.5, environment: development, utcTimestamp: '2026-07-22T10:00:00.000Z', version: 1.0.0 }
+  /api/v1/health:
+    get:
+      tags: [Health]
+      summary: Versioned health check
+      responses:
+        '200': { description: API is running }
+  /api/v1/auth/signup:
+    post:
+      tags: [Authentication]
+      summary: Create an account and send a verification email
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/SignupRequest' } } }
+      responses:
+        '201': { description: Account created, content: { application/json: { schema: { $ref: '#/components/schemas/SuccessResponse' } } } }
+        '409': { description: Email already exists }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/auth/resend-verification:
+    post:
+      tags: [Authentication]
+      summary: Resend an email verification link
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EmailRequest' } } } }
+      responses:
+        '200': { description: Generic accepted response, or ALREADY_VERIFIED when the account has already been verified }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/auth/verify-email:
+    post:
+      tags: [Authentication]
+      summary: Verify email and create an authenticated JWT session
+      description: The frontend verification page submits the one-time token. No JWT is issued for an invalid, expired, used, or inactive account token.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TokenRequest' } } } }
+      responses:
+        '200': { description: Email verified and login successful, content: { application/json: { schema: { $ref: '#/components/schemas/LoginResponse' } } } }
+        '400': { description: Invalid, expired, revoked, or already used token }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Log in and receive a JWT
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } } }
+      responses:
+        '200': { description: Login successful, content: { application/json: { schema: { $ref: '#/components/schemas/LoginResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [Authentication]
+      summary: Request a password reset link
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EmailRequest' } } } }
+      responses:
+        '200': { description: Password reset email sent }
+        '403': { description: Registered account is inactive }
+        '404': { description: Email is not registered }
+  /api/v1/auth/verify-reset-token:
+    get:
+      tags: [Authentication]
+      summary: Validate a password reset token
+      parameters: [{ $ref: '#/components/parameters/Token' }]
+      responses: { '200': { description: Token is valid }, '400': { description: Invalid or expired token } }
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Authentication]
+      summary: Consume a token and replace the password
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ResetPasswordRequest' } } } }
+      responses: { '200': { description: Password reset }, '400': { description: Invalid or expired token }, '422': { $ref: '#/components/responses/ValidationError' } }
+
+  /api/v1/users:
+    get: { <<: *listOperation, tags: [Users], summary: List users }
+    post:
+      tags: [Users]
+      summary: Create a managed user
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UserInput' } } } }
+      responses: { '201': { description: User created }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/users/{userUid}:
+    parameters: [{ $ref: '#/components/parameters/UserUid' }]
+    get: { <<: *getOperation, tags: [Users], summary: Get a user }
+    put:
+      tags: [Users]
+      summary: Update a user
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UserInput' } } } }
+      responses: { '200': { description: User updated }, '404': { $ref: '#/components/responses/NotFound' }, '422': { $ref: '#/components/responses/ValidationError' } }
+    delete: { <<: *deleteOperation, tags: [Users], summary: Soft-delete a user }
+
+  /api/v1/roles:
+    get: { <<: *listOperation, tags: [Roles], summary: List roles }
+    post:
+      tags: [Roles]
+      summary: Create a role
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RoleInput' } } } }
+      responses: { '201': { description: Role created }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/roles/{roleUid}:
+    parameters: [{ $ref: '#/components/parameters/RoleUid' }]
+    get: { <<: *getOperation, tags: [Roles], summary: Get a role }
+    put:
+      tags: [Roles]
+      summary: Update a role
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RoleInput' } } } }
+      responses: { '200': { description: Role updated }, '404': { $ref: '#/components/responses/NotFound' } }
+    delete: { <<: *deleteOperation, tags: [Roles], summary: Soft-delete a role }
+
+  /api/v1/menus:
+    get: { <<: *listOperation, tags: [Menus], summary: List menus }
+    post:
+      tags: [Menus]
+      summary: Create a menu
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MenuInput' } } } }
+      responses: { '201': { description: Menu created }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/menus/{menuUid}:
+    parameters: [{ $ref: '#/components/parameters/MenuUid' }]
+    get: { <<: *getOperation, tags: [Menus], summary: Get a menu }
+    put:
+      tags: [Menus]
+      summary: Update a menu
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MenuInput' } } } }
+      responses: { '200': { description: Menu updated }, '404': { $ref: '#/components/responses/NotFound' } }
+    delete: { <<: *deleteOperation, tags: [Menus], summary: Soft-delete a menu }
+
+  /api/v1/permissions:
+    get: { <<: *listOperation, tags: [Permissions], summary: List permissions }
+    post:
+      tags: [Permissions]
+      summary: Create an API permission
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PermissionInput' } } } }
+      responses: { '201': { description: Permission created }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/permissions/{permissionUid}:
+    parameters: [{ $ref: '#/components/parameters/PermissionUid' }]
+    get: { <<: *getOperation, tags: [Permissions], summary: Get a permission }
+    put:
+      tags: [Permissions]
+      summary: Update a permission
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PermissionInput' } } } }
+      responses: { '200': { description: Permission updated }, '404': { $ref: '#/components/responses/NotFound' } }
+    delete: { <<: *deleteOperation, tags: [Permissions], summary: Soft-delete a permission }
+
+  /api/v1/general-settings/public:
+    get:
+      tags: [General Settings]
+      summary: Get active public settings
+      responses: { '200': { description: Typed key-value settings } }
+  /api/v1/general-settings:
+    get: { <<: *listOperation, tags: [General Settings], summary: List settings }
+    post:
+      tags: [General Settings]
+      summary: Create a setting
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SettingInput' } } } }
+      responses: { '201': { description: Setting created }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/general-settings/{settingUid}:
+    parameters: [{ $ref: '#/components/parameters/SettingUid' }]
+    get: { <<: *getOperation, tags: [General Settings], summary: Get a setting }
+    put:
+      tags: [General Settings]
+      summary: Update a setting
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SettingInput' } } } }
+      responses: { '200': { description: Setting updated }, '404': { $ref: '#/components/responses/NotFound' } }
+    delete: { <<: *deleteOperation, tags: [General Settings], summary: Soft-delete a setting }
+
+  /api/v1/locations/countries:
+    get:
+      tags: [Locations]
+      summary: List and search countries
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/LocationLimit' }
+        - { $ref: '#/components/parameters/Search' }
+      responses: { '200': { description: Paginated countries } }
+  /api/v1/locations/countries/{countryUid}/states:
+    get:
+      tags: [Locations]
+      summary: List and search states for a country
+      parameters:
+        - { $ref: '#/components/parameters/CountryUid' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/LocationLimit' }
+        - { $ref: '#/components/parameters/Search' }
+      responses: { '200': { description: Paginated states }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/locations/states/{stateUid}/cities:
+    get:
+      tags: [Locations]
+      summary: List and search cities for a state
+      parameters:
+        - { $ref: '#/components/parameters/StateUid' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/LocationLimit' }
+        - { $ref: '#/components/parameters/Search' }
+      responses: { '200': { description: Paginated cities }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/organization-options:
+    get:
+      tags: [Organization]
+      summary: Get entity types, industries, and document types
+      responses: { '200': { description: Active organization form options } }
+  /api/v1/organizations/me:
+    get:
+      tags: [Organization]
+      summary: Get the current issuer organization form
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Complete organization form or null }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/organizations/me/user-notified:
+    patch:
+      tags: [Organization]
+      summary: Mark the current organization user as notified
+      description: Idempotently sets isUserNotified to true for the authenticated issuer's organization.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Organization notification flag updated }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/organizations/me/company-information:
+    put:
+      tags: [Organization]
+      summary: Save company information or a partial draft
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CompanyInformationInput' } } } }
+      responses:
+        '200': { description: Company information saved }
+        '400': { description: Completed step is incomplete or has an invalid location hierarchy }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/organizations/me/jurisdiction:
+    put:
+      tags: [Organization]
+      summary: Save jurisdiction information or a partial draft
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/JurisdictionInput' } } } }
+      responses:
+        '200': { description: Jurisdiction information saved }
+        '400': { description: Completed step is incomplete or contains invalid references }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/organizations/me/beneficial-owners:
+    put:
+      tags: [Organization]
+      summary: Replace beneficial owners or save a partial draft
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BeneficialOwnersInput' } } } }
+      responses:
+        '200': { description: Beneficial owners saved }
+        '400': { description: Owner or ownership rules failed }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/organizations/me/documents:
+    get:
+      tags: [Organization]
+      summary: List uploaded organization documents
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Organization document metadata } }
+    post:
+      tags: [Organization]
+      summary: Upload one or more organization documents
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [documentTypeUid, documents]
+              properties:
+                documentTypeUid: { type: string, format: uuid }
+                documents:
+                  type: array
+                  items: { type: string, format: binary }
+      responses:
+        '201': { description: Documents uploaded }
+        '422': { description: Invalid multipart fields, file type, size, or count }
+  /api/v1/organizations/me/documents/{documentUid}/download:
+    get:
+      tags: [Organization]
+      summary: Download an organization document
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/DocumentUid' }]
+      responses:
+        '200': { description: Document file, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/organizations/me/documents/{documentUid}:
+    delete:
+      tags: [Organization]
+      summary: Soft-delete an organization document
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/DocumentUid' }]
+      responses:
+        '200': { description: Document deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/organizations/me/submit:
+    post:
+      tags: [Organization]
+      summary: Validate and submit the organization for review
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizationSubmitInput' }
+      responses:
+        '200': { description: Organization submitted }
+        '400': { description: Required form data, owners, or documents are missing }
+        '409': { description: Organization is no longer editable }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/token-options:
+    get:
+      tags: [Token Creation]
+      summary: Get decimals, restriction modes, and claim-topic master values
+      responses:
+        '200': { description: Token options including claim topic values 1 and 2 }
+  /api/v1/tokens/me:
+    get:
+      tags: [Token Creation]
+      summary: Get the approved issuer's single token form
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Complete token form or null }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Organization is not approved }
+  /api/v1/tokens/me/information:
+    put:
+      tags: [Token Creation]
+      summary: Save token information and optionally upload/replace the token image
+      description: The server decodes the actual image, validates 256-4096 dimensions, strips metadata, and stores optimized WebP.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/TokenInformationInput' }
+      responses:
+        '200': { description: Token information or draft saved }
+        '400': { description: Completed token information is incomplete }
+        '409': { description: Token is immutable or symbol already exists }
+        '422': { description: Field or token image validation failed }
+  /api/v1/tokens/me/image:
+    get:
+      tags: [Token Creation]
+      summary: View the optimized token image
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Optimized token image
+          content:
+            image/webp: { schema: { type: string, format: binary } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/tokens/me/claims:
+    put:
+      tags: [Token Creation]
+      summary: Replace selected claim topics and assign the organization as trusted issuer
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TokenClaimsInput' } } } }
+      responses:
+        '200': { description: Claim selections saved }
+        '400': { description: At least one active topic and trusted issuer consent are required for completion }
+        '409': { description: Token is immutable }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/tokens/me/compliance:
+    put:
+      tags: [Token Creation]
+      summary: Save holding limits and multiple ISO 3166-1 numeric country restrictions
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TokenComplianceInput' } } } }
+      responses:
+        '200': { description: Compliance rules saved with server-resolved ISO numeric codes }
+        '400': { description: Completed rules or country references are invalid }
+        '409': { description: Token is immutable }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/tokens/me/governance:
+    put:
+      tags: [Token Creation]
+      summary: Save token-agent and identity-manager wallets
+      description: Both addresses must match the approved organization walletAddress.
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TokenGovernanceInput' } } } }
+      responses:
+        '200': { description: Governance roles saved }
+        '400': { description: A wallet does not match the organization wallet }
+        '409': { description: Token is immutable }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/tokens/me/price:
+    patch:
+      tags: [Token Creation]
+      summary: Update the current price of the authenticated issuer's deployed token
+      description: Only the token-owning issuer can update currentTokenPrice. initialTokenPrice is never changed. New purchase, redemption, and transfer intents snapshot this current price.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenPriceUpdateInput' }
+      responses:
+        '200': { description: Current token price updated; initial token price is unchanged }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: User is not the owning issuer }
+        '404': { description: Owned token was not found }
+        '409': { description: Token is not active and deployed, or changed concurrently }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/tokens/me/submit:
+    post:
+      tags: [Token Creation]
+      summary: Verify the frontend TREX deployment transaction and save suite addresses
+      description: Requires a confirmed transaction whose receipt contains TREXSuiteDeployed from the configured TREX factory.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenSubmitInput' }
+      responses:
+        '200': { description: Deployment verified and token status changed to deployed }
+        '400': { description: One or more token steps are incomplete }
+        '409': { description: Token is already deployed }
+        '422': { description: Request validation or on-chain deployment verification failed; token status is deploymentFailed for receipt failures }
+  /api/v1/admin/organizations:
+    get:
+      tags: [Admin Organizations]
+      summary: List submitted organization applications
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Search' }
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [all, PENDING_PAYMENT, PAYMENT_CONFIRMED, MINT_SUBMITTED, COMPLETED, EXPIRED]
+            default: all
+        - { $ref: '#/components/parameters/Search' }
+        - in: query
+          name: status
+          schema: { type: string, enum: [submitted, resubmitted, underReview, approved, rejected] }
+        - in: query
+          name: sortBy
+          schema: { type: string, enum: [legalCompanyName, status, submittedAt, updatedAt], default: submittedAt }
+        - { $ref: '#/components/parameters/SortOrder' }
+      responses:
+        '200': { description: Paginated submitted organization applications }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/organizations/{organizationUid}:
+    get:
+      tags: [Admin Organizations]
+      summary: Get a complete submitted organization application
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/OrganizationUid' }]
+      responses:
+        '200': { description: Organization, issuer, beneficial owners, and document metadata }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/organizations/{organizationUid}/documents/{documentUid}/file:
+    get:
+      tags: [Admin Organizations]
+      summary: Preview or download an organization document
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/OrganizationUid' }
+        - { $ref: '#/components/parameters/DocumentUid' }
+        - in: query
+          name: disposition
+          schema: { type: string, enum: [inline, attachment], default: inline }
+          description: Inline previews the file; attachment downloads it using its original filename.
+      responses:
+        '200':
+          description: Organization document binary content
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/organizations/{organizationUid}/status:
+    patch:
+      tags: [Admin Organizations]
+      summary: Approve or reject a submitted organization application
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/OrganizationUid' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizationReviewInput' }
+      responses:
+        '200': { description: Application reviewed; approval includes contractAddress, contractTxnHash, and contractTxnMessage }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Only submitted or resubmitted applications can be reviewed }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '502': { description: On-chain identity creation failed and application status was not changed }
+  /api/v1/investor/claims:
+    get:
+      tags: [Investor Claims]
+      summary: List issuer-signed claims and synchronization states for an investor application
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: interestId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Trusted claim parameters and current submission states }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/investor/claims/{claimId}/prepare:
+    post:
+      tags: [Investor Claims]
+      summary: Prepare the single claim-submission row before the wallet transaction
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ClaimId' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/InvestorClaimInterestInput' } } }
+      responses:
+        '201': { description: Submission prepared and trusted on-chain parameters returned }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Application is not ready for claim submission }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/investor/claims/{claimId}/submit:
+    post:
+      tags: [Investor Claims]
+      summary: Persist and verify the wallet claim transaction
+      description: Returns CONFIRMED, or HTTP 202 PENDING_CONFIRMATION while the durable hash awaits mining/confirmations.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ClaimId' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/InvestorClaimSubmitInput' } } }
+      responses:
+        '200': { description: Exact claim event verified and existing row confirmed }
+        '202': { description: Hash persisted; transaction is awaiting mining or confirmations }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { description: Definitive chain, receipt, identity, or claim mismatch }
+        '503': { description: RPC is temporarily unavailable; submission remains pending }
+  /api/v1/investor/claims/{claimId}/retry:
+    post:
+      tags: [Investor Claims]
+      summary: Fast idempotent claim recovery without a synchronous historical log scan
+      description: Verifies an existing hash or performs one Identity.getClaim read. Returns CONFIRMED, PENDING_CONFIRMATION, TRANSACTION_REQUIRED, or HTTP 202 SYNCING.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ClaimId' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/InvestorClaimInterestInput' } } }
+      responses:
+        '200': { description: Confirmed, pending confirmation, or a new wallet transaction is required }
+        '202': { description: Exact claim exists; background synchronization is queued }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Claim submission must be prepared before Retry }
+        '503': { description: RPC is temporarily unavailable }
+  /api/v1/investments/issuer/interests/{interestUid}/registry-registration:
+    post:
+      tags: [Identity Registry]
+      summary: Create or resume a backend-authoritative registry operation
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/InterestUid' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false } } }
+      responses:
+        '200': { description: Existing operation returned or existing on-chain registration inserted directly as CONFIRMED }
+        '201': { description: PENDING operation created before MetaMask }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Subscription, claims, country, agent, or expected registry state is not eligible }
+        '503': { description: Existing on-chain registration evidence is temporarily unavailable; retry without opening MetaMask }
+    get:
+      tags: [Identity Registry]
+      summary: Resume the issuer-owned registry operation
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/InterestUid' }]
+      responses:
+        '200': { description: Registry operation state }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/investments/issuer/interests/{interestUid}/registry-registration/{registryRegistrationUid}/confirm:
+    post:
+      tags: [Identity Registry]
+      summary: Independently verify a registerIdentity transaction and conditionally confirm
+      description: The client may send only txHash. Every expected value comes from the PENDING database row. Direct registerIdentity transactions and strictly decoded single executions through a configured MetaMask Delegation Manager are supported.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/InterestUid' }
+        - { $ref: '#/components/parameters/RegistryRegistrationUid' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistryConfirmationInput' }
+      responses:
+        '200': { description: Transaction/event/state verified; registry operation CONFIRMED, interest registered, and history recorded atomically }
+        '202': { description: Hash stored; transaction is not mined or sufficiently confirmed yet }
+        '409': { description: Operation/hash ownership or idempotency conflict }
+        '422': { description: Definitive sender, target, calldata, receipt, event, or state mismatch }
+        '503': { description: RPC unavailable; operation remains PENDING and recoverable }
+
+  /api/v1/investments/transactions/confirm:
+    post:
+      tags: [Blockchain Transactions]
+      summary: Verify and record a frontend wallet transaction
+      description: Optional fast path. Investors submit INVEST/TRANSFER hashes; the owning issuer submits the issuer-executed REDEMPTION hash. The backend independently verifies role, ownership, sender, calldata, receipt, events and settlement; the fallback indexer remains authoritative when this API is missed.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfirmBlockchainTransactionInput' }
+      responses:
+        '200': { description: Current SUBMITTED, CONFIRMED, or FAILED canonical state }
+        '403': { description: Role, token ownership, or transaction sender does not match the authenticated wallet owner }
+        '422': { description: Chain, contract, function, token, event, quote, or settlement mismatch }
+        '503': { description: Blockchain RPC is temporarily unavailable }
+  /api/v1/investments/transactions:
+    get:
+      tags: [Blockchain Transactions]
+      summary: List role-scoped canonical blockchain transaction history
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { in: query, name: tokenUid, schema: { type: string, format: uuid } }
+        - { in: query, name: type, schema: { type: string, enum: [INVEST, TRANSFER, REDEMPTION, USDT_APPROVAL, TOKEN_ISSUE, TOKEN_BURN, PRICE_UPDATE, ALL], default: ALL } }
+        - { in: query, name: status, schema: { type: string, enum: [SUBMITTED, CONFIRMED, FAILED, ORPHANED, ALL], default: ALL } }
+        - { in: query, name: walletAddress, schema: { type: string } }
+        - { in: query, name: txHash, schema: { type: string } }
+        - { in: query, name: fromDate, schema: { type: string, format: date-time } }
+        - { in: query, name: toDate, schema: { type: string, format: date-time } }
+        - { $ref: '#/components/parameters/Search' }
+      responses:
+        '200': { description: Paginated canonical transaction rows }
+  /api/v1/investments/transactions/export:
+    get:
+      tags: [Blockchain Transactions]
+      summary: Export the full role-scoped filtered transaction history as CSV
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: UTF-8 CSV file }
+
+  /api/v1/investments/tokens/{tokenUid}/purchases:
+    get:
+      tags: [Token Purchases]
+      summary: List the authenticated investor's purchase history for a token
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: tokenUid
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { description: Newest-first investor-owned purchase rows with pagination metadata }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/investments/me/portfolio:
+    get:
+      tags: [Token Purchases]
+      summary: List the authenticated investor's aggregated completed-token portfolio
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Search' }
+      responses:
+        '200': { description: Marketplace token data with chain, purchase, redemption, and net holding aggregates }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/investments/purchases/{purchaseUid}:
+    get:
+      tags: [Token Purchases]
+      summary: Get investor-owned payment, mint, synchronization, and transaction history
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/PurchaseUid' }]
+      responses:
+        '200': { description: Current purchase settlement state }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/investments/tokens/{tokenUid}/transfers:
+    get:
+      tags: [Token Transfers]
+      summary: List sent and received token transfers
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: tokenUid, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Search' }
+        - { in: query, name: status, schema: { type: string, enum: [PENDING_TRANSFER, COMPLETED, EXPIRED, MANUAL_REVIEW, all], default: all } }
+        - { in: query, name: direction, schema: { type: string, enum: [sent, received, all], default: all } }
+      responses:
+        '200': { description: Accessible transfer rows with pagination metadata }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/investments/transfers/{transferUid}:
+    get:
+      tags: [Token Transfers]
+      summary: Get sender/recipient accessible transfer detail and hash history
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/TransferUid' }]
+      responses:
+        '200': { description: Current transfer lifecycle and audit state }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/investments/tokens/{tokenUid}/redemptions:
+    get:
+      tags: [Token Redemptions]
+      summary: List investor-owned redemption history for a token
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: tokenUid, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { in: query, name: search, schema: { type: string, maxLength: 100 } }
+        - { in: query, name: status, schema: { type: string, default: all } }
+      responses:
+        '200': { description: Newest-first redemption history }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Token Redemptions]
+      summary: Create an investor redemption intent and EIP-712 authorization payload
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: tokenUid, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateTokenRedemptionInput' } } }
+      responses:
+        '200': { description: Existing idempotent or active redemption returned }
+        '201': { description: Authoritative redemption intent created }
+        '409': { description: Redemption prerequisites or available token balance failed }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/investments/redemptions/{redemptionUid}:
+    get:
+      tags: [Token Redemptions]
+      summary: Get investor-owned redemption, timeline, and blockchain transaction history
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RedemptionUid' }]
+      responses:
+        '200': { description: Current redemption state }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/investments/redemptions/{redemptionUid}/authorize:
+    post:
+      tags: [Token Redemptions]
+      summary: Verify the registered investor wallet EIP-712 authorization
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RedemptionUid' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AuthorizeTokenRedemptionInput' } } }
+      responses:
+        '200': { description: Authorization verified or already verified }
+        '422': { description: Invalid, expired, or wrong-wallet signature }
+  /api/v1/investments/redemptions/{redemptionUid}/cancel:
+    post:
+      tags: [Token Redemptions]
+      summary: Cancel the off-chain request before a redemption transaction is submitted
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RedemptionUid' }]
+      responses:
+        '200': { description: Request cancelled }
+        '409': { description: Cancellation is no longer allowed after blockchain submission }
+  /api/v1/investments/issuer/redemptions:
+    get:
+      tags: [Token Redemptions]
+      summary: List redemption requests belonging to the authenticated issuer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { in: query, name: search, schema: { type: string, maxLength: 100 } }
+        - { in: query, name: status, schema: { type: string, default: all } }
+      responses:
+        '200': { description: Issuer-owned redemption requests }
+  /api/v1/investments/issuer/redemptions/{redemptionUid}:
+    get:
+      tags: [Token Redemptions]
+      summary: Get issuer-owned redemption detail
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RedemptionUid' }]
+      responses:
+        '200': { description: Redemption detail including investorName, timeline, and blockchain transaction history }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/investments/issuer/redemptions/{redemptionUid}/approve:
+    post:
+      tags: [Token Redemptions]
+      summary: Approve the off-chain redemption request
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RedemptionUid' }]
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/ApproveTokenRedemptionInput' } } }
+      responses:
+        '200': { description: Approved; issuer allowance and final redeem remain frontend/on-chain actions }
+  /api/v1/investments/issuer/redemptions/{redemptionUid}/reject:
+    post:
+      tags: [Token Redemptions]
+      summary: Reject a redemption before token locking
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/RedemptionUid' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RejectTokenRedemptionInput' } } }
+      responses:
+        '200': { description: Redemption rejected }
+
+  /api/v1/investments/issuer/investors:
+    get:
+      tags: [Investor Invitations]
+      summary: List completed investor profiles for an issuer-owned deployed token
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: tokenUid, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Search' }
+        - in: query
+          name: invitationStatus
+          schema: { type: string, enum: [all, notInvited, PENDING, SENT, VIEWED], default: all }
+      responses:
+        '200': { description: Completed investors with eligibility and invitation state }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Token is not owned by authenticated issuer }
+        '409': { description: Organization or token is not eligible to invite }
+  /api/v1/investments/issuer/investors/{investorUid}/invitations:
+    post:
+      tags: [Investor Invitations]
+      summary: Create or idempotently return a token invitation and deliver its email
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: investorUid, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateInvestorInvitationInput' } } }
+      responses:
+        '201': { description: Invitation created and email sent }
+        '200': { description: Existing sent/in-progress invitation returned without duplicate delivery }
+        '409': { description: Investor, country, organization, token, or existing interest is ineligible }
+        '502': { description: Invitation saved but SMTP delivery failed; retry the same operation }
+  /api/v1/investments/me/invitations:
+    get:
+      tags: [Investor Invitations]
+      summary: List authenticated investor's delivered token invitations
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Search' }
+        - { in: query, name: status, schema: { type: string, enum: [all, SENT, VIEWED], default: all } }
+      responses:
+        '200': { description: Paginated invitations with marketplace token and issuer detail }
+        '409': { description: Investor profile is incomplete }
+  /api/v1/investments/me/invitations/{invitationUid}:
+    get:
+      tags: [Investor Invitations]
+      summary: Get an investor-owned delivered invitation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: invitationUid, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Invitation with marketplace token and issuer detail }
+        '404': { description: Invitation does not belong to the investor }
+  /api/v1/investments/me/invitations/{invitationUid}/viewed:
+    patch:
+      tags: [Investor Invitations]
+      summary: Idempotently mark an investor-owned invitation viewed
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: invitationUid, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false } } }
+      responses:
+        '200': { description: Invitation is VIEWED }
+        '404': { description: Invitation does not belong to the investor }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    Page: { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+    Limit: { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+    Search: { in: query, name: search, schema: { type: string, maxLength: 100 } }
+    SortBy: { in: query, name: sortBy, schema: { type: string, default: createdAt } }
+    SortOrder: { in: query, name: sortOrder, schema: { type: string, enum: [asc, desc], default: desc } }
+    LocationLimit: { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 250, default: 50 } }
+    Token: { in: query, name: token, required: true, schema: { type: string, minLength: 64, maxLength: 64 } }
+    UserUid: { in: path, name: userUid, required: true, schema: { type: string, format: uuid } }
+    RoleUid: { in: path, name: roleUid, required: true, schema: { type: string, format: uuid } }
+    MenuUid: { in: path, name: menuUid, required: true, schema: { type: string, format: uuid } }
+    PermissionUid: { in: path, name: permissionUid, required: true, schema: { type: string, format: uuid } }
+    SettingUid: { in: path, name: settingUid, required: true, schema: { type: string, format: uuid } }
+    CountryUid: { in: path, name: countryUid, required: true, schema: { type: string, format: uuid } }
+    StateUid: { in: path, name: stateUid, required: true, schema: { type: string, format: uuid } }
+    DocumentUid: { in: path, name: documentUid, required: true, schema: { type: string, format: uuid } }
+    OrganizationUid: { in: path, name: organizationUid, required: true, schema: { type: string, format: uuid } }
+    ClaimId: { in: path, name: claimId, required: true, schema: { type: string, format: uuid } }
+    InterestUid: { in: path, name: interestUid, required: true, schema: { type: string, format: uuid } }
+    RegistryRegistrationUid: { in: path, name: registryRegistrationUid, required: true, schema: { type: string, format: uuid } }
+    PurchaseUid: { in: path, name: purchaseUid, required: true, schema: { type: string, format: uuid } }
+    RedemptionUid: { in: path, name: redemptionUid, required: true, schema: { type: string, format: uuid } }
+    TransferUid: { in: path, name: transferUid, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Unauthorized: { description: Missing, invalid, expired, or stale JWT }
+    Forbidden: { description: Account or role is not allowed to perform the operation }
+    NotFound: { description: Resource does not exist }
+    ValidationError: { description: Body, query, or route validation failed }
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        message: { type: string }
+        data: {}
+        timestamp: { type: string, format: date-time }
+        requestId: { type: string, format: uuid }
+    SignupRequest:
+      type: object
+      required: [fullName, email, password, isIssuer]
+      properties:
+        fullName: { type: string, example: Ada Lovelace }
+        email: { type: string, format: email, example: ada@example.com }
+        password: { type: string, format: password, example: 'Launch!234' }
+        isIssuer:
+          type: boolean
+          example: true
+          description: When true assigns the Issuer role; when false assigns the Investor role.
+    EmailRequest:
+      type: object
+      required: [email]
+      properties: { email: { type: string, format: email, example: ada@example.com } }
+    TokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, minLength: 64, maxLength: 64, pattern: '^[A-Fa-f0-9]{64}$' }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: ada@example.com }
+        password: { type: string, format: password, example: 'Launch!234' }
+    LoginResponse:
+      allOf:
+        - { $ref: '#/components/schemas/SuccessResponse' }
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                accessToken: { type: string }
+                tokenType: { type: string, example: Bearer }
+                expiresIn: { type: string, example: 1h }
+                user:
+                  type: object
+                  properties:
+                    userUid: { type: string, format: uuid }
+                    roleUid: { type: string, format: uuid }
+                    fullName: { type: string }
+                    email: { type: string, format: email }
+                    roleName: { type: string, example: Investor }
+                    emailVerified: { type: boolean, example: true }
+    ResetPasswordRequest:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token: { type: string, minLength: 64, maxLength: 64 }
+        newPassword: { type: string, format: password, example: 'NewLaunch!567' }
+    UserInput:
+      type: object
+      properties:
+        roleUid: { type: string, format: uuid }
+        fullName: { type: string, example: Grace Hopper }
+        email: { type: string, format: email, example: grace@example.com }
+        password: { type: string, format: password, example: 'Compiler!123' }
+        emailVerified: { type: boolean }
+        isActive: { type: boolean }
+    RoleInput:
+      type: object
+      properties:
+        roleName: { type: string, example: Operations }
+        description: { type: string, example: Launch operations team }
+        isSystem: { type: boolean, default: false }
+        isActive: { type: boolean, default: true }
+    MenuInput:
+      type: object
+      properties:
+        parentMenuUid: { type: string, format: uuid, nullable: true }
+        menuName: { type: string, example: Launches }
+        menuCode: { type: string, example: LAUNCHES }
+        routePath: { type: string, example: /launches }
+        icon: { type: string, example: rocket }
+        displayOrder: { type: integer, example: 10 }
+        isVisible: { type: boolean }
+        isActive: { type: boolean }
+    PermissionInput:
+      type: object
+      properties:
+        roleUid: { type: string, format: uuid }
+        menuUid: { type: string, format: uuid, nullable: true }
+        permissionName: { type: string, example: List launches }
+        permissionCode: { type: string, example: LAUNCH_LIST }
+        httpMethod: { type: string, enum: [GET, POST, PUT, PATCH, DELETE] }
+        apiPath: { type: string, example: /api/v1/launches }
+        isAllowed: { type: boolean }
+        isActive: { type: boolean }
+    SettingInput:
+      type: object
+      properties:
+        settingKey: { type: string, example: application.pageSize }
+        settingValue: { type: string, example: '25' }
+        valueType: { type: string, enum: [string, number, boolean, json] }
+        settingGroup: { type: string, example: application }
+        description: { type: string }
+        isPublic: { type: boolean }
+        isActive: { type: boolean }
+    CompanyInformationInput:
+      type: object
+      required: [isDraft]
+      properties:
+        legalCompanyName: { type: string, maxLength: 200, example: Acme Financial Holdings Ltd. }
+        entityTypeUid: { type: string, format: uuid }
+        registrationNumber: { type: string, maxLength: 100, example: LEI-5493001KJTIIGC8Y1R12 }
+        streetAddress: { type: string, maxLength: 255, example: 123 Financial District }
+        countryUid: { type: string, format: uuid }
+        stateUid: { type: string, format: uuid }
+        cityUid: { type: string, format: uuid }
+        postalCode: { type: string, maxLength: 20, example: '94105' }
+        isDraft: { type: boolean, example: false }
+    JurisdictionInput:
+      type: object
+      required: [isDraft]
+      properties:
+        countryOfIncorporationUid: { type: string, format: uuid }
+        dateOfIncorporation: { type: string, format: date, example: '2020-05-16' }
+        taxIdentificationNumber: { type: string, maxLength: 100, example: US123456789 }
+        industryUid: { type: string, format: uuid }
+        businessActivity: { type: string, maxLength: 5000, example: Asset tokenization }
+        website: { type: string, format: uri, example: https://acme.example }
+        isDraft: { type: boolean, example: false }
+    BeneficialOwnersInput:
+      type: object
+      required: [owners, isDraft]
+      properties:
+        owners:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            properties:
+              fullName: { type: string, maxLength: 120, example: Jane Doe }
+              dateOfBirth: { type: string, format: date, example: '1985-06-15' }
+              nationalityCountryUid: { type: string, format: uuid }
+              ownershipPercentage:
+                type: number
+                minimum: 0
+                multipleOf: 0.01
+                example: 20
+                description: No individual minimum; completed owner arrays must total exactly 100 percent.
+              isPrimary: { type: boolean, example: true }
+        isDraft: { type: boolean, example: false }
+    TokenPriceUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [currentTokenPrice]
+      properties:
+        currentTokenPrice:
+          type: number
+          exclusiveMinimum: 0
+          example: 1.25
+    OrganizationSubmitInput:
+      type: object
+      required: [walletAddress]
+      properties:
+        walletAddress:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{40}$'
+          example: '0x1111111111111111111111111111111111111111'
+    OrganizationReviewInput:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [approved, rejected] }
+        rejectionReason:
+          type: string
+          minLength: 10
+          maxLength: 2000
+          description: Required when status is rejected and forbidden when status is approved.
+          example: Please replace the expired incorporation document.
+    TokenInformationInput:
+      type: object
+      required: [isDraft]
+      properties:
+        tokenName:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: "^[A-Za-z0-9][A-Za-z0-9 .'-]{1,48}[A-Za-z0-9]$"
+          example: Acme Security Token
+        tokenSymbol:
+          type: string
+          minLength: 2
+          maxLength: 10
+          pattern: '^[A-Z0-9]{2,10}$'
+          example: TREX
+        decimals: { type: integer, enum: [2, 6, 8, 18], example: 18 }
+        initialTokenPrice: { type: number, exclusiveMinimum: 0, example: 1 }
+        treasuryWalletAddress:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{40}$'
+        tokenDescription: { type: string, maxLength: 2000 }
+        tokenImage:
+          type: string
+          format: binary
+          description: Required for completed Step 1 unless an image already exists. PNG/JPEG/WebP/SVG, maximum 2 MB.
+        isDraft: { type: boolean, example: false }
+    TokenClaimsInput:
+      type: object
+      required: [claimTopicUids, organizationActsAsTrustedClaimIssuer, isDraft]
+      properties:
+        claimTopicUids:
+          type: array
+          uniqueItems: true
+          maxItems: 20
+          items: { type: string, format: uuid }
+        organizationActsAsTrustedClaimIssuer: { type: boolean, example: true }
+        isDraft: { type: boolean, example: false }
+    TokenComplianceInput:
+      type: object
+      required: [countryUids, isDraft]
+      properties:
+        maxInvestors: { type: integer, minimum: 1, maximum: 1000000000, example: 2000 }
+        maxBalancePerInvestor:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          example: 10000
+          description: Absolute maximum token amount per investor (not a percentage); must be greater than zero and supports up to 18 decimal places.
+        countryRestrictionMode: { type: string, enum: [allowlist, blocklist], example: allowlist }
+        countryUids:
+          type: array
+          uniqueItems: true
+          maxItems: 250
+          description: Server resolves each UID to countryMaster.numericCode (ISO 3166-1 numeric).
+          items: { type: string, format: uuid }
+        isDraft: { type: boolean, example: false }
+    TokenGovernanceInput:
+      type: object
+      required: [isDraft]
+      properties:
+        tokenAgentWalletAddress:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{40}$'
+          deprecated: true
+          description: Legacy input accepted but ignored. The backend always stores PLATFORM_CONTROLLER_ADDRESS as Token Agent.
+        identityManagerWalletAddress:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{40}$'
+        isDraft: { type: boolean, example: false }
+    TokenSubmitInput:
+      type: object
+      required: [transactionHash]
+      additionalProperties: false
+      properties:
+        transactionHash:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{64}$'
+          example: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    InvestorClaimInterestInput:
+      type: object
+      required: [interestId]
+      additionalProperties: false
+      properties:
+        interestId: { type: string, format: uuid }
+    InvestorClaimSubmitInput:
+      type: object
+      required: [interestId, txHash]
+      additionalProperties: false
+      properties:
+        interestId: { type: string, format: uuid }
+        txHash:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{64}$'
+          example: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    RegistryConfirmationInput:
+      type: object
+      required: [txHash]
+      additionalProperties: false
+      properties:
+        txHash:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{64}$'
+          example: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    ConfirmBlockchainTransactionInput:
+      type: object
+      required: [chainId, txHash, tokenUid, expectedAction]
+      additionalProperties: false
+      properties:
+        chainId: { type: integer, example: 11155111 }
+        txHash:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{64}$'
+          example: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        tokenUid: { type: string, format: uuid }
+        expectedAction: { type: string, enum: [INVEST, TRANSFER, REDEMPTION] }
+    CreateTokenRedemptionInput:
+      type: object
+      required: [tokenAmount, idempotencyKey]
+      additionalProperties: false
+      properties:
+        tokenAmount:
+          type: string
+          pattern: '^(?:0|[1-9]\d*)(?:\.\d+)?$'
+          example: '1.25'
+        idempotencyKey: { type: string, minLength: 8, maxLength: 100, example: redeem-20260824-0001 }
+    AuthorizeTokenRedemptionInput:
+      type: object
+      required: [signature]
+      additionalProperties: false
+      properties:
+        signature:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{130}$'
+          description: EIP-712 signature produced by the registered investor wallet for the exact typedData returned at creation.
+    ApproveTokenRedemptionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        note: { type: string, maxLength: 1000, nullable: true }
+    RejectTokenRedemptionInput:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 1000 }
+    CreateInvestorInvitationInput:
+      type: object
+      required: [tokenUid]
+      additionalProperties: false
+      properties:
+        tokenUid: { type: string, format: uuid }

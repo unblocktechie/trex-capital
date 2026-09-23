@@ -1,0 +1,93 @@
+const { execute } = require('../database/connection');
+const { sqlInteger } = require('../utils/sql');
+
+class LocationRepository {
+  async paginate(sqlBase, countBase, params, { page = 1, limit = 50 }) {
+    const safePage = Math.max(1, Math.trunc(Number(page) || 1));
+    const safeLimit = Math.max(1, Math.trunc(Number(limit) || 50));
+    const offset = (safePage - 1) * safeLimit;
+    const limitSql = sqlInteger(safeLimit, { min: 1, name: 'limit' });
+    const offsetSql = sqlInteger(offset, { name: 'offset' });
+    const counts = await execute(countBase, params);
+    const rows = await execute(`${sqlBase} LIMIT ${limitSql} OFFSET ${offsetSql}`, params);
+    const total = Number(counts[0].total);
+    return { rows, pagination: { page: safePage, limit: safeLimit, total, totalPages: Math.ceil(total / safeLimit) } };
+  }
+
+  async listCountries({ page = 1, limit = 50, search }) {
+    const where = ['`isActive` = 1', '`isDeleted` = 0'];
+    const params = [];
+    if (search) {
+      where.push('(`countryName` LIKE ? OR `countryCode` LIKE ? OR `numericCode` LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    const clause = where.join(' AND ');
+    return this.paginate(
+      `SELECT \`countryUid\`, \`countryCode\`, \`numericCode\`, \`countryName\`, \`phoneCode\`, \`currencyCode\` FROM \`countryMaster\` WHERE ${clause} ORDER BY \`countryName\``,
+      `SELECT COUNT(*) AS \`total\` FROM \`countryMaster\` WHERE ${clause}`,
+      params,
+      { page, limit },
+    );
+  }
+
+  async listStates(countryUid, { page = 1, limit = 100, search }) {
+    const where = ['`countryUid` = ?', '`isActive` = 1', '`isDeleted` = 0'];
+    const params = [countryUid];
+    if (search) {
+      where.push('(`stateName` LIKE ? OR `stateCode` LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    const clause = where.join(' AND ');
+    return this.paginate(
+      `SELECT \`stateUid\`, \`countryUid\`, \`stateCode\`, \`stateName\` FROM \`stateMaster\` WHERE ${clause} ORDER BY \`stateName\``,
+      `SELECT COUNT(*) AS \`total\` FROM \`stateMaster\` WHERE ${clause}`,
+      params,
+      { page, limit },
+    );
+  }
+
+  async listCities(stateUid, { page = 1, limit = 100, search }) {
+    const where = ['`stateUid` = ?', '`isActive` = 1', '`isDeleted` = 0'];
+    const params = [stateUid];
+    if (search) {
+      where.push('`cityName` LIKE ?');
+      params.push(`%${search}%`);
+    }
+    const clause = where.join(' AND ');
+    return this.paginate(
+      `SELECT \`cityUid\`, \`countryUid\`, \`stateUid\`, \`cityName\` FROM \`cityMaster\` WHERE ${clause} ORDER BY \`cityName\``,
+      `SELECT COUNT(*) AS \`total\` FROM \`cityMaster\` WHERE ${clause}`,
+      params,
+      { page, limit },
+    );
+  }
+
+  async findCountry(countryUid, executor) {
+    const rows = await execute('SELECT * FROM `countryMaster` WHERE `countryUid` = ? AND `isActive` = 1 AND `isDeleted` = 0 LIMIT 1', [countryUid], executor);
+    return rows[0] || null;
+  }
+
+  async findCountries(countryUids, executor) {
+    if (!countryUids.length) return [];
+    return execute(
+      `SELECT \`countryUid\`, \`countryCode\`, \`numericCode\`, \`countryName\`
+       FROM \`countryMaster\`
+       WHERE \`countryUid\` IN (${countryUids.map(() => '?').join(', ')})
+         AND \`isActive\` = 1 AND \`isDeleted\` = 0`,
+      countryUids,
+      executor,
+    );
+  }
+
+  async findState(stateUid, executor) {
+    const rows = await execute('SELECT * FROM `stateMaster` WHERE `stateUid` = ? AND `isActive` = 1 AND `isDeleted` = 0 LIMIT 1', [stateUid], executor);
+    return rows[0] || null;
+  }
+
+  async findCity(cityUid, executor) {
+    const rows = await execute('SELECT * FROM `cityMaster` WHERE `cityUid` = ? AND `isActive` = 1 AND `isDeleted` = 0 LIMIT 1', [cityUid], executor);
+    return rows[0] || null;
+  }
+}
+
+module.exports = { LocationRepository };
