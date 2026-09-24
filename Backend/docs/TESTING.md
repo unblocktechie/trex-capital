@@ -10,12 +10,19 @@ copy .env.example .env
 mysql -u root -p < database/trex-launchpad.sql
 npm run seed:locations
 npm run seed:admin
+npm run seed:test-users
 npm run check
 npm test
 npm run dev
 ```
 
 For an existing database, rerun the idempotent main schema and `npm run seed:locations` before starting the updated API.
+
+`npm run seed:test-users` idempotently creates or refreshes `issuer1@mail.com` through
+`issuer100@mail.com` and `investor1@mail.com` through `investor100@mail.com`. Every account is active,
+email-verified, assigned to the matching Issuer/Investor role, and uses password `Abc@12345` by
+default. Override the count or password with `TEST_USER_COUNT` and `TEST_USER_PASSWORD`. The command
+is blocked when `NODE_ENV=production` unless `ALLOW_TEST_USER_SEED=true` is explicitly supplied.
 
 Expected startup log: `Trex Launchpad Backend started`. If environment validation, MySQL, or SMTP configuration is invalid, startup fails clearly.
 
@@ -296,7 +303,7 @@ curl -X PUT http://localhost:3000/api/v1/tokens/me/compliance \
   -d '{"maxInvestors":2000,"maxBalancePerInvestor":10000,"countryRestrictionMode":"allowlist","countryUids":["COUNTRY_UID"],"isDraft":false}'
 ```
 
-Expected: the response restriction includes the authoritative three-digit `iso3166NumericCode`. Multiple unique countries are supported.
+Expected: the response restriction includes the authoritative three-digit `iso3166NumericCode`. Multiple unique countries are supported. Also repeat with `"countryUids":[]`; it must succeed and return `countryRestrictions: []`, meaning no geographic restriction.
 
 Save governance with the organization address as Identity Manager. The Token Agent is assigned by
 the backend from `PLATFORM_CONTROLLER_ADDRESS`:
@@ -309,7 +316,7 @@ curl -X PUT http://localhost:3000/api/v1/tokens/me/governance \
 ```
 
 Expected: the response contains
-`tokenAgentWalletAddress: 0x40e81FAA4e6D54ae0632DF146939bB5858359271`. A different valid
+`tokenAgentWalletAddress: 0x4052D80c222111234b89AFDfff597B5De8DA50cd`. A different valid
 Identity Manager wallet must return `400`. A legacy client-supplied Token Agent is ignored.
 
 Review and submit:
@@ -425,7 +432,7 @@ ONCHAINID, and at least one `SIGNED` issuer claim. Use the investor JWT.
    `PLATFORM_CONTROLLER_ADDRESS`, payment token, RPC, chain ID, confirmation count, and the earliest
    required `TRANSACTION_INDEXER_START_BLOCK`.
 2. Invest: from the registered investor wallet, approve live USDT allowance when needed and call
-   `PlatformController.buy(tokenAddress, tokenAmountRaw)`. The backend must not be required for
+   `PlatformController.buy(tokenAddress, paymentTokenAddress, tokenAmountRaw)`. The backend must not be required for
    either wallet transaction.
 3. Submit the resulting hash to `POST /api/v1/investments/transactions/confirm` with chain ID,
    token UID, and `expectedAction=INVEST`. Verify exact sender, controller target/function, token,
@@ -453,7 +460,7 @@ Their transaction-orchestration POST endpoints and runners are retired.
 
 ## Legacy investor token purchase and mint settlement
 
-1. Configure Sepolia RPC, platform signer, and `PURCHASE_USDT_ADDRESS`. Confirm the platform wallet
+1. Configure Sepolia RPC and platform signer. Select a currency from `GET /api/v1/payment-tokens` and confirm the Platform Controller
    is a Token Agent for the deployed token and use an investor interest with status `registered`.
 2. Create an intent:
 

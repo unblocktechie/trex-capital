@@ -17,6 +17,7 @@ const createV1Router = () => {
   router.get('/health', health);
   router.use('/auth', createAuthRouter(dependencies.controllers.auth));
   router.get('/token-options', asyncHandler(dependencies.controllers.tokens.options));
+  router.get('/payment-tokens', asyncHandler(dependencies.controllers.tokens.paymentTokens));
   router.use(createReferenceRouter({
     locationController: dependencies.controllers.locations,
     organizationController: dependencies.controllers.organizations,

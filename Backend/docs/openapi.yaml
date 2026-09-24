@@ -379,6 +379,12 @@ paths:
       summary: Get decimals, restriction modes, and claim-topic master values
       responses:
         '200': { description: Token options including claim topic values 1 and 2 }
+  /api/v1/payment-tokens:
+    get:
+      tags: [Token Creation]
+      summary: List active payment tokens supported for purchase and redemption
+      responses:
+        '200': { description: Supported payment-token metadata and contract addresses }
   /api/v1/tokens/me:
     get:
       tags: [Token Creation]
@@ -1192,6 +1198,10 @@ components:
         treasuryWalletAddress:
           type: string
           pattern: '^0x[a-fA-F0-9]{40}$'
+        paymentTokenAddress:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{40}$'
+          description: Must match an active contractAddress returned by GET /api/v1/payment-tokens.
         tokenDescription: { type: string, maxLength: 2000 }
         tokenImage:
           type: string
@@ -1225,7 +1235,7 @@ components:
           type: array
           uniqueItems: true
           maxItems: 250
-          description: Server resolves each UID to countryMaster.numericCode (ISO 3166-1 numeric).
+          description: Empty means no geographic restriction. For non-empty arrays, the server resolves each UID to countryMaster.numericCode (ISO 3166-1 numeric).
           items: { type: string, format: uuid }
         isDraft: { type: boolean, example: false }
     TokenGovernanceInput:

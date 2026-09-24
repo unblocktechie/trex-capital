@@ -3,6 +3,7 @@ const path = require('node:path');
 const { ApiError } = require('../core/errors/api-error');
 const { env } = require('../core/config/env');
 const { logger } = require('./common/log.service');
+const { findSupportedPaymentToken } = require('../config/payment-tokens');
 
 const IMAGE_URL = (tokenUid) => `/api/v1/investments/tokens/${tokenUid}/image`;
 
@@ -13,6 +14,8 @@ const presentToken = (row, countryRestrictions = []) => {
   const { imageStorageKey, imageMimeType, ...rest } = row;
   return {
     ...rest,
+    paymentToken: row.paymentTokenAddress
+      ? findSupportedPaymentToken(row.paymentTokenAddress, env.blockchain.chainId) : null,
     hasImage: Boolean(imageStorageKey),
     imageUrl: imageStorageKey ? IMAGE_URL(row.tokenUid) : null,
     countryRestrictions: countryRestrictions.map((restriction) => ({

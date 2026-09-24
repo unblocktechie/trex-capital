@@ -32,6 +32,7 @@ import {
   UploadMissingDocumentsModal,
 } from '@/components/investor-marketplace/MarketplaceModals';
 import { MarketplaceStatusBadge } from '@/components/investor-marketplace/MarketplaceStatusBadge';
+import { CurrencyAmount } from '@/components/common/CurrencyAmount';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ROUTES } from '@/config/routes';
@@ -42,7 +43,6 @@ import { getErrorMessage } from '@/utils/error';
 
 const number = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const displayNumber = (value) => value == null ? '—' : number.format(value);
-const displayPrice = (value, currency) => value == null ? '—' : `$${number.format(value)}${currency ? ` ${currency}` : ''}`;
 
 const friendlyEligibilityLabel = (topic = {}) => {
   const code = String(topic.claimTopicCode || topic.code || topic.label || '').toUpperCase();
@@ -58,8 +58,13 @@ const friendlyEligibilityDescription = (topic = {}) => {
   return topic.description || 'This requirement must be completed before you can invest.';
 };
 
-function SnapshotCard({ label, children }) {
-  return <div className="marketplace-snapshot-card"><span>{label}</span><strong>{children}</strong></div>;
+function SnapshotCard({ label, children, className = '' }) {
+  return (
+    <div className={["marketplace-snapshot-card", className].filter(Boolean).join(' ')}>
+      <span>{label}</span>
+      <strong>{children}</strong>
+    </div>
+  );
 }
 
 function ComplianceRule({ icon: Icon, title, children, status }) {
@@ -387,7 +392,11 @@ export default function MarketplaceTokenDetailsPage() {
           <section className="marketplace-detail-section">
             <span className="marketplace-detail-section-label">Key investment details</span>
             <div className="marketplace-snapshot-grid marketplace-snapshot-grid--friendly">
-              <SnapshotCard label="Price per unit">{displayPrice(token.price, token.currency)}</SnapshotCard>
+              <SnapshotCard label="Price per unit" className="marketplace-snapshot-card--price">
+                {token.price == null ? '—' : (
+                  <CurrencyAmount symbol={token.currency || 'USDT'}>${number.format(token.price)}</CurrencyAmount>
+                )}
+              </SnapshotCard>
               <SnapshotCard label="Investor limit">{displayNumber(token.maxInvestors)}</SnapshotCard>
               <SnapshotCard label="Current investors">{displayNumber(token.currentInvestors)}</SnapshotCard>
               <SnapshotCard label="Maximum you can hold">{token.maxBalance == null ? '—' : `${displayNumber(token.maxBalance)} ${token.symbol}`}</SnapshotCard>
@@ -412,7 +421,7 @@ export default function MarketplaceTokenDetailsPage() {
             <div className="marketplace-registry-grid">
               <div><span>Token standard</span><strong>{token.standard || '—'}</strong></div>
               <div><span>Decimal precision</span><strong>{displayNumber(token.decimals)}</strong></div>
-              {token.onchainId ? <div><span>Blockchain identity</span><strong>{token.onchainId}</strong><button type="button" aria-label="Copy blockchain identity" onClick={() => copyValue(token.onchainId, 'Blockchain identity')}><Copy size={14} /></button></div> : null}
+              {token.onchainId ? <div><span>Technical identity reference</span><strong>{token.onchainId}</strong><button type="button" aria-label="Copy technical identity reference" onClick={() => copyValue(token.onchainId, 'Technical identity reference')}><Copy size={14} /></button></div> : null}
               {token.registryAddress ? <div><span>Approved investor registry</span><strong>{token.registryAddress}</strong><button type="button" aria-label="Copy registry address" onClick={() => copyValue(token.registryAddress, 'Approved investor registry address')}><Copy size={14} /></button></div> : null}
             </div>
           </details>

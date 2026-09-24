@@ -23,6 +23,7 @@ const tokenInformation = Joi.object({
   decimals: Joi.number().integer().valid(2, 6, 8, 18).allow('', null),
   initialTokenPrice: Joi.number().positive().precision(18).max(999999999999999999).allow('', null),
   treasuryWalletAddress: evmAddress.allow('', null),
+  paymentTokenAddress: evmAddress.allow('', null),
   tokenDescription: Joi.string().trim().max(2000).allow('', null),
   isDraft: Joi.boolean().required(),
 });
@@ -37,7 +38,9 @@ const tokenCompliance = Joi.object({
   maxInvestors: Joi.number().integer().min(1).max(1000000000).allow(null),
   maxBalancePerInvestor: Joi.number().positive().precision(18).allow(null),
   countryRestrictionMode: Joi.string().valid('allowlist', 'blocklist').allow(null),
-  countryUids: Joi.array().items(uid.required()).unique().max(250).required(),
+  // The array itself is required so clients must state their intent, but it may
+  // be empty to explicitly configure no geographic restriction.
+  countryUids: Joi.array().items(uid).unique().max(250).required(),
   isDraft: Joi.boolean().required(),
 });
 

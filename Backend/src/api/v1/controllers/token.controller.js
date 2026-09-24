@@ -1,10 +1,16 @@
 const { sendSuccess } = require('../../../utils/response');
 const { HTTP_STATUS } = require('../../../config/constants');
+const { listSupportedPaymentTokens } = require('../../../config/payment-tokens');
+const { env } = require('../../../core/config/env');
 
 const createTokenController = (service, optionRepository) => ({
   options: async (req, res) => sendSuccess(req, res, {
     message: 'Token creation options fetched successfully.',
     data: await optionRepository.listAll(),
+  }),
+  paymentTokens: async (req, res) => sendSuccess(req, res, {
+    message: 'Supported payment tokens fetched successfully.',
+    data: listSupportedPaymentTokens(env.blockchain.chainId),
   }),
   getMine: async (req, res) => sendSuccess(req, res, {
     message: 'Token form fetched successfully.',

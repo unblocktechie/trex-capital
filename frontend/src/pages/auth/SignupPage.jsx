@@ -46,7 +46,7 @@ const accountTypes = [
     value: 'issuer',
     title: 'I am an Issuer',
     description:
-      'Create compliant token offerings, manage investor eligibility and operate digital securities.',
+      'Create compliant investment offerings, manage investor eligibility, and oversee issued assets.',
     helper: 'For funds, sponsors, startups and asset owners',
     icon: Building2,
   },
@@ -54,7 +54,7 @@ const accountTypes = [
     value: 'investor',
     title: 'I am an Investor',
     description:
-      'Explore compliant offerings, complete identity verification and manage your investment access.',
+      'Explore investment opportunities, complete identity checks, and manage your investment access.',
     helper: 'For individual and institutional investors',
     icon: TrendingUp,
   },
@@ -118,7 +118,7 @@ export default function SignupPage() {
           Create your account
         </h2>
         <p className="m-0 text-sm leading-[22px] text-[var(--text-soft)]">
-          Choose how you will use the platform, then complete your secure profile.
+          Choose how you will use the platform.
         </p>
       </div>
 

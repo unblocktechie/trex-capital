@@ -7,7 +7,7 @@ const REGISTRY = '0x1111111111111111111111111111111111111111';
 const ISSUER = '0x2222222222222222222222222222222222222222';
 const INVESTOR = '0x3333333333333333333333333333333333333333';
 const IDENTITY = '0x4444444444444444444444444444444444444444';
-const PLATFORM_CONTROLLER = '0x40e81FAA4e6D54ae0632DF146939bB5858359271';
+const PLATFORM_CONTROLLER = '0x4052D80c222111234b89AFDfff597B5De8DA50cd';
 const TX = `0x${'ab'.repeat(32)}`;
 const issuer = { userUid: 'issuer-user', roleName: 'Issuer' };
 
@@ -16,6 +16,8 @@ const makeService = ({
   interestStatus = 'claimSubmitted',
   registryState = { contains: false, matches: false, issuerIsAgent: true },
   registrationEvent = null,
+  countryRestrictionCount = 1,
+  countryListed = true,
 } = {}) => {
   const state = {
     rows: [], verificationCalls: 0, interestStatus, history: [], pendingCreates: 0, confirmedCreates: 0,
@@ -24,7 +26,7 @@ const makeService = ({
     interestUid: 'interest-1', interestStatus, tokenUid: 'token-1', organizationUid: 'org-1', investorUid: 'investor-1',
     tokenStatus: 'deployed', identityRegistryAddress: REGISTRY,
     tokenAgentWalletAddress: PLATFORM_CONTROLLER, identityManagerWalletAddress: ISSUER,
-    countryRestrictionMode: 'allowlist', countryListed: true,
+    countryRestrictionMode: 'allowlist', countryRestrictionCount, countryListed,
     issuerUserUid: issuer.userUid, issuerWalletAddress: ISSUER, organizationStatus: 'approved', organizationActive: true,
     investorWalletAddress: INVESTOR, investorIdentityAddress: IDENTITY, investorStatus: 'submitted', investorActive: true,
     countryNumericCode: '356', countryActive: true, countryDeleted: false, deployedAtBlock: 50,
@@ -110,6 +112,13 @@ test('create records PENDING before MetaMask and returns only authoritative para
   assert.equal(result.operation.country, 356);
   assert.equal(state.rows.length, 1);
   assert.equal(state.rows[0].txHash, null);
+});
+
+test('registry registration remains eligible when the token has no geographic restrictions', async () => {
+  const { service } = makeService({ countryRestrictionCount: 0, countryListed: false });
+  const result = await service.create(issuer, 'interest-1');
+  assert.equal(result.operation.status, 'PENDING');
+  assert.equal(result.operation.country, 356);
 });
 
 test('create is idempotent and does not duplicate a pending operation', async () => {

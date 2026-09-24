@@ -18,6 +18,7 @@ import { formatUnits, parseUnits } from 'viem';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { investmentApi } from '@/api/investments';
+import { CurrencyAmount } from '@/components/common/CurrencyAmount';
 import { env } from '@/config/env';
 import {
   InvestorTokenActionHeader,
@@ -31,6 +32,7 @@ import { MarketplaceDropdown } from '@/components/investor-marketplace/Marketpla
 import { InvestmentJourneyTracker } from '@/components/application-history/InvestmentJourneyTracker';
 import { InvestorHistoryPagination } from '@/components/investor-marketplace/InvestorHistoryPagination';
 import { Button } from '@/components/ui/Button';
+import { WalletFundingDialog } from '@/components/wallet/WalletFundingDialog';
 import { Card } from '@/components/ui/Card';
 import { ROUTES } from '@/config/routes';
 import { web3Config } from '@/config/web3';
@@ -54,6 +56,7 @@ import {
 } from '@/services/investor/investorTokenPurchaseTransaction.service';
 import { getErrorMessage, sanitizeUserFacingMessage } from '@/utils/error';
 import { getWalletErrorMessage } from '@/utils/wallet';
+import { getWalletFundingIssue } from '@/utils/walletFunding';
 import { getInvestmentActionContext } from '@/utils/investmentPurchase';
 import { getInvestmentJourney } from '@/utils/investmentJourney';
 import { resolveCurrentTokenPriceExact } from '@/utils/tokenPrice';
@@ -73,10 +76,10 @@ const HISTORY_SEARCH_DEBOUNCE_MS = 400;
 const HISTORY_LIMIT = 5;
 
 const PURCHASE_HISTORY_FILTERS = Object.freeze([
-  { value: 'all', label: 'All statuses', description: 'Show every investment transaction' },
-  { value: 'SUBMITTED', label: 'Submitted', description: 'Sent to the network and waiting for confirmation' },
-  { value: 'CONFIRMED', label: 'Confirmed', description: 'Confirmed successfully on the blockchain' },
-  { value: 'FAILED', label: 'Failed', description: 'The blockchain transaction reverted' },
+  { value: 'all', label: 'All statuses', description: 'Show every investment record' },
+  { value: 'SUBMITTED', label: 'Submitted', description: 'Submitted and waiting for confirmation' },
+  { value: 'CONFIRMED', label: 'Confirmed', description: 'Completed and recorded successfully' },
+  { value: 'FAILED', label: 'Failed', description: 'The investment could not be completed' },
 ]);
 
 const clean = (value) => String(value ?? '').trim();
@@ -197,18 +200,18 @@ const canonicalTransactionAsPurchase = (row = {}) => {
 const purchaseHistoryStatusMeta = (status, canonicalStatus = '') => {
   switch (normalizeStatus(canonicalStatus || status)) {
     case 'SUBMITTED':
-      return { label: 'Submitted', tone: 'pending', tooltip: 'Your wallet submitted this investment. No additional wallet action is needed while it confirms.' };
+      return { label: 'Submitted', tone: 'pending', tooltip: 'Your investment was submitted. No additional action is needed while it is being confirmed.' };
     case 'CONFIRMED':
-      return { label: 'Confirmed', tone: 'confirmed', tooltip: 'This investment was independently verified from the confirmed blockchain transaction.' };
+      return { label: 'Confirmed', tone: 'confirmed', tooltip: 'This investment was confirmed successfully and added to your records.' };
     case 'FAILED':
-      return { label: 'Failed', tone: 'expired', tooltip: 'The blockchain transaction reverted. You may start a new investment when you are ready.' };
+      return { label: 'Failed', tone: 'expired', tooltip: 'The investment could not be completed. You may start a new investment when you are ready.' };
     case PURCHASE_STATUS.PENDING_PAYMENT:
       return { label: 'Pending', tone: 'pending', tooltip: '' };
     case PURCHASE_STATUS.PAYMENT_CONFIRMED:
       return {
         label: 'Payment Received',
         tone: 'confirmed',
-        tooltip: 'Your USDT payment has been received successfully. Your payment transaction has been recorded and your tokens are being processed.',
+        tooltip: 'Your USDT payment was received successfully. Your investment record is being updated.',
       };
     case PURCHASE_STATUS.MINT_SUBMITTED:
       return {
@@ -220,7 +223,7 @@ const purchaseHistoryStatusMeta = (status, canonicalStatus = '') => {
       return {
         label: 'Completed',
         tone: 'completed',
-        tooltip: 'Your purchase is complete. The token transaction has received the required blockchain confirmations and is considered finalized.',
+        tooltip: 'Your investment is complete and the final confirmation has been recorded.',
       };
     case PURCHASE_STATUS.EXPIRED:
       return {
@@ -302,6 +305,7 @@ export default function PurchaseTokenPage({
   const [platformQuote, setPlatformQuote] = useState(null);
   const [platformQuoteLoading, setPlatformQuoteLoading] = useState(false);
   const [platformQuoteError, setPlatformQuoteError] = useState('');
+  const [walletFundingIssue, setWalletFundingIssue] = useState(null);
   const operationLockRef = useRef(false);
   const completedToastRef = useRef('');
   const walletTokenAutoPromptRef = useRef(false);
@@ -393,6 +397,27 @@ export default function PurchaseTokenPage({
       : Number.isFinite(tokenPrice) && tokenPrice > 0 && Number(normalizedTokenAmount) > 0
         ? Number(normalizedTokenAmount) * tokenPrice
         : 0;
+
+  const resolveWalletFundingIssue = useCallback((walletError) => getWalletFundingIssue(walletError, {
+    walletAddress: walletGuard.wallet.address || preparedInvestorWallet,
+    networkName: walletGuard.targetChain?.name || walletGuard.wallet.requiredChain?.name,
+    nativeSymbol: walletGuard.targetChain?.nativeCurrency?.symbol || walletGuard.wallet.requiredChain?.nativeCurrency?.symbol,
+    nativeBalance: walletGuard.wallet.balance,
+    nativeBalanceLabel: walletGuard.wallet.balanceLabel,
+    paymentSymbol: platformQuote?.paymentTokenSymbol,
+    requiredPayment: platformQuote?.paymentAmountFormatted,
+  }), [
+    platformQuote?.paymentAmountFormatted,
+    platformQuote?.paymentTokenSymbol,
+    preparedInvestorWallet,
+    walletGuard.targetChain?.name,
+    walletGuard.targetChain?.nativeCurrency?.symbol,
+    walletGuard.wallet.address,
+    walletGuard.wallet.balance,
+    walletGuard.wallet.balanceLabel,
+    walletGuard.wallet.requiredChain?.name,
+    walletGuard.wallet.requiredChain?.nativeCurrency?.symbol,
+  ]);
   const requiredPaymentAmountRaw = clean(
     purchase?.usdtAmountRaw
     || purchase?.paymentAmountRaw
@@ -473,7 +498,7 @@ export default function PurchaseTokenPage({
     } catch (approvalError) {
       if (usdtApprovalRequestRef.current !== requestId) return false;
       setUsdtSpendingApproved(false);
-      setUsdtApprovalError(getErrorMessage(approvalError, 'We could not check your USDT spending approval. Please try again.'));
+      setUsdtApprovalError(getErrorMessage(approvalError, 'We could not check your USDT payment permission. Please try again.'));
       return false;
     } finally {
       if (usdtApprovalRequestRef.current === requestId) setUsdtApprovalLoading(false);
@@ -549,6 +574,16 @@ export default function PurchaseTokenPage({
   const paymentTxHash = paymentHashOf(purchase) || broadcastTxHash;
   const purchaseStatus = normalizeStatus(purchase?.status);
   const isCompleted = purchaseStatus === PURCHASE_STATUS.COMPLETED;
+  const [lastCompletedPurchase, setLastCompletedPurchase] = useState('');
+  const completedPurchaseKey = isCompleted ? purchaseUid || paymentTxHash || 'completed' : '';
+  // Reset once for each completed purchase, preserving the user's next entry.
+  if (completedPurchaseKey && completedPurchaseKey !== lastCompletedPurchase) {
+    setLastCompletedPurchase(completedPurchaseKey);
+    setTokenAmountInput('');
+    setPlatformQuote(null);
+    setPlatformQuoteError('');
+  }
+
   const explorerUrlFor = useCallback((txHash, chainIdOverride) => {
     if (!validTransactionHash(txHash)) return '';
     const chainId = Number(chainIdOverride || purchase?.chainId || context.chainId);
@@ -771,11 +806,11 @@ export default function PurchaseTokenPage({
       return;
     }
     if (usdtApprovalLoading) {
-      toast.info('Checking your existing USDT spending approval. Please wait a moment.');
+      toast.info('Checking your existing USDT payment permission. Please wait a moment.');
       return;
     }
     if (usdtSpendingApproved) {
-      toast.success('Your existing USDT spending approval is sufficient. You can continue to Invest.');
+      toast.success('Your USDT payment permission is already active. You can continue to review your investment.');
       return;
     }
 
@@ -791,14 +826,14 @@ export default function PurchaseTokenPage({
         chainId: preparedChainId || walletGuard.targetChainId,
         onStep: ({ stage }) => {
           if (stage === 'approval-signature') {
-            toast.info('Allow USDT spending first', {
+            toast.info('Allow USDT payments', {
               id: 'purchase-usdt-approval-step',
-              description: 'Confirm this one-time spending permission in your wallet. This does not make a purchase.',
+              description: 'This one-time permission lets you make investments using USDT. It does not make an investment by itself.',
             });
           } else if (stage === 'approval-confirming') {
-            toast.info('USDT approval submitted', {
+            toast.info('Payment permission submitted', {
               id: 'purchase-usdt-approval-step',
-              description: 'Waiting for the network to confirm your spending permission.',
+              description: 'Waiting for your payment permission to be confirmed.',
             });
           }
         },
@@ -806,24 +841,26 @@ export default function PurchaseTokenPage({
 
       const approved = Boolean(approval?.spendingApproved) || await refreshUsdtSpendingApproval({ silent: true });
       if (!approved) {
-        throw new Error('USDT spending approval was submitted but could not be confirmed. Refresh and try again.');
+        throw new Error('Your USDT payment permission was submitted but could not be confirmed. Refresh and try again.');
       }
 
       setUsdtSpendingApproved(true);
       setUsdtApprovalError('');
-      toast.success('USDT Spending Approved', {
+      toast.success('USDT payments allowed', {
         id: 'purchase-usdt-approval-step',
         description: approval?.alreadyApproved
-          ? 'Your existing USDT spending approval is sufficient. You can continue to Invest.'
-          : 'USDT spending is approved. You can now invest, and future investments can reuse this approval while it remains sufficient.',
+          ? 'Your USDT payment permission is already active. You can continue to review your investment.'
+          : 'Your payment permission is active. You can now review and confirm investments using USDT while this permission remains sufficient.',
       });
     } catch (approvalError) {
       if (isInvestorPurchaseWalletRejection(approvalError)) {
-        toast.info('USDT spending approval cancelled. No purchase was submitted.');
+        toast.info('Payment permission cancelled. No investment was submitted.');
       } else {
-        const message = getWalletErrorMessage(approvalError, 'The wallet could not approve USDT spending. Please try again.');
+        const fundingIssue = resolveWalletFundingIssue(approvalError);
+        if (fundingIssue) setWalletFundingIssue(fundingIssue);
+        const message = getWalletErrorMessage(approvalError, 'Your wallet could not confirm the payment permission. Please try again.');
         setUsdtApprovalError(message);
-        toast.error('Unable to approve USDT spending', { description: message });
+        toast.error('Unable to allow payments', { description: message });
       }
     } finally {
       setBusyAction('');
@@ -838,12 +875,12 @@ export default function PurchaseTokenPage({
       return;
     }
     if (usdtApprovalLoading) {
-      toast.info('Checking your USDT spending approval. Please wait a moment.');
+      toast.info('Checking your USDT payment permission. Please wait a moment.');
       return;
     }
     if (!usdtSpendingApproved) {
-      toast.info('USDT spending approval is required', {
-        description: 'Choose Allow USDT Spending first. The approval is separate from the investment transaction.',
+      toast.info('USDT payment permission is required', {
+        description: 'Choose Allow payments first. This one-time permission lets you make investments using USDT. You will always review and confirm an investment before funds are used.',
       });
       return;
     }
@@ -852,11 +889,11 @@ export default function PurchaseTokenPage({
       return;
     }
     if (platformQuoteLoading) {
-      toast.info('Checking the latest on-chain price. Please wait a moment.');
+      toast.info('Checking the latest investment price. Please wait a moment.');
       return;
     }
     if (platformQuoteError || !platformQuote) {
-      toast.error('Investment temporarily unavailable', { description: platformQuoteError || 'The current on-chain quote could not be verified.' });
+      toast.error('Investment temporarily unavailable', { description: platformQuoteError || 'The current investment price could not be confirmed.' });
       return;
     }
 
@@ -896,7 +933,7 @@ export default function PurchaseTokenPage({
         expectedPaymentAmountRaw: platformQuote?.paymentAmount?.toString?.(),
         onStep: ({ stage }) => {
           if (stage === 'purchase-signature') {
-            toast.info('Confirm investment in your wallet', {
+            toast.info('Review and confirm your investment', {
               id: 'purchase-platform-step',
               description: 'This wallet transaction sends your investment directly to the smart contract.',
             });
@@ -927,7 +964,7 @@ export default function PurchaseTokenPage({
         createdAt: new Date().toISOString(),
       }));
       toast.success('Investment submitted', {
-        description: 'Your wallet transaction was sent. You do not need to send it again while the platform synchronizes the confirmed result.',
+        description: 'Your investment was submitted. No additional action is needed while the confirmation is completed.',
       });
 
       try {
@@ -943,12 +980,12 @@ export default function PurchaseTokenPage({
           setBroadcastTxHash('');
           setPurchase(canonicalTransactionAsPurchase({ ...observed, transactionHash: observed?.transactionHash || txHash }));
           investorPortfolioService.refreshAfterCompletedActivity().catch(() => {});
-          toast.success('Investment confirmed', { description: 'The blockchain transaction was verified and added to your history.' });
+          toast.success('Investment confirmed', { description: 'Your investment was confirmed and added to your history.' });
         } else if (status === 'FAILED') {
           clearObservedWalletTransaction({ chainId, txHash, expectedAction: 'INVEST' });
           setBroadcastTxHash('');
           setPurchase(canonicalTransactionAsPurchase({ ...observed, transactionHash: observed?.transactionHash || txHash }));
-          toast.error('Investment failed', { description: 'The blockchain transaction reverted. No automatic retry was sent.' });
+          toast.error('Investment failed', { description: 'The investment could not be completed. No automatic retry was sent.' });
         }
       } catch (syncError) {
         const statusCode = Number(syncError?.response?.status);
@@ -961,27 +998,29 @@ export default function PurchaseTokenPage({
             status: 'FAILED',
             createdAt: new Date().toISOString(),
           }));
-          toast.error('Transaction could not be matched', {
-            description: sanitizeUserFacingMessage(getErrorMessage(syncError, 'The submitted transaction does not match this investment.')),
+          toast.error('Investment could not be matched', {
+            description: sanitizeUserFacingMessage(getErrorMessage(syncError, 'The submitted confirmation does not match this investment.')),
           });
         } else {
-          toast.info('Transaction sent — history is still syncing', {
-            description: 'Your blockchain transaction is safe. The platform will recover it automatically; do not submit it again.',
+          toast.info('Investment submitted — history is updating', {
+            description: 'Your investment was submitted successfully. History will update automatically; do not submit it again.',
           });
         }
       }
       refreshPurchaseHistory();
     } catch (walletError) {
       if (isInvestorPurchaseWalletRejection(walletError)) {
-        toast.info('Transaction cancelled. No investment was submitted.');
+        toast.info('Investment cancelled. No investment was submitted.');
       } else if (clean(walletError?.code) === 'PAYMENT_APPROVAL_REQUIRED') {
         setUsdtSpendingApproved(false);
         setUsdtApprovalError('Your current USDT allowance is no longer enough for this investment.');
-        toast.error('USDT spending approval required', {
-          description: 'Approve USDT spending, then choose Invest again.',
+        toast.error('USDT payment permission required', {
+          description: 'Allow USDT payments, then review your investment again.',
         });
       } else {
-        const message = getWalletErrorMessage(walletError, 'The wallet could not submit this investment. Please try again.');
+        const fundingIssue = resolveWalletFundingIssue(walletError);
+        if (fundingIssue) setWalletFundingIssue(fundingIssue);
+        const message = getWalletErrorMessage(walletError, 'Your wallet could not submit this investment. Please try again.');
         setPurchaseError(message);
         setPurchaseErrorCode(clean(walletError?.code));
         toast.error('Unable to submit investment', { description: message });
@@ -1112,7 +1151,7 @@ export default function PurchaseTokenPage({
   const paymentContract = clean(purchase?.usdtContractAddress) || env.trex.paymentToken;
   const purchaseBlockedByPrevious = normalizeStatus(purchase?.canonicalStatus) === 'SUBMITTED';
   const purchaseAvailabilityUnverified = false;
-  const actionLabel = usdtSpendingApproved ? 'Invest' : 'Approve';
+  const actionLabel = usdtSpendingApproved ? 'Invest' : 'Allow payments';
   const approvalActionDisabled = Boolean(busyAction)
     || !walletGuard.ready
     || usdtApprovalLoading
@@ -1185,7 +1224,7 @@ export default function PurchaseTokenPage({
               You will pay with USDT from your registered investment wallet. Payment goes to the issuer when you confirm the investment.
             </p>
             <details className="investor-technical-details investor-token-technical-details">
-              <summary>View wallet &amp; payment details</summary>
+              <summary>View account &amp; payment details</summary>
               <div className="investor-token-action-address-grid">
                 <LockedAddressField label="Your registered investment wallet" value={preparedInvestorWallet} />
                 <LockedAddressField label="Issuer payment wallet" value={exactTreasury} emptyLabel="Issuer payment wallet unavailable" />
@@ -1226,9 +1265,9 @@ export default function PurchaseTokenPage({
             <div className="investor-token-action-calculation">
               <span>Estimated USDT cost</span>
               <strong>
-                {estimatedPayment > 0
-                  ? `${money.format(estimatedPayment)} ${token.currency || 'USDT'}`
-                  : `0 ${token.currency || 'USDT'}`}
+                <CurrencyAmount symbol={token.currency || 'USDT'}>
+                  {estimatedPayment > 0 ? money.format(estimatedPayment) : '0'}
+                </CurrencyAmount>
               </strong>
             </div>
             {platformQuoteLoading ? <p className="investor-token-action-field-hint">Checking the latest price…</p> : null}
@@ -1275,7 +1314,11 @@ export default function PurchaseTokenPage({
             </div>
             <div className="investor-token-order-row">
               <span>Price per unit</span>
-              <strong>{tokenPriceExact ? `$${displayServerAmount(tokenPriceExact)} ${token.currency || 'USDT'}` : '—'}</strong>
+              <strong>
+                {tokenPriceExact ? (
+                  <CurrencyAmount symbol={token.currency || 'USDT'}>${displayServerAmount(tokenPriceExact)}</CurrencyAmount>
+                ) : '—'}
+              </strong>
             </div>
             <div className="investor-token-order-row investor-token-order-row--primary">
               <span>You will receive</span>
@@ -1284,9 +1327,9 @@ export default function PurchaseTokenPage({
             <div className="investor-token-order-row">
               <span>Estimated USDT cost</span>
               <strong>
-                {estimatedPayment > 0
-                  ? `$${money.format(estimatedPayment)} ${token.currency || 'USDT'}`
-                  : '—'}
+                {estimatedPayment > 0 ? (
+                  <CurrencyAmount symbol={token.currency || 'USDT'}>${money.format(estimatedPayment)}</CurrencyAmount>
+                ) : '—'}
               </strong>
             </div>
             <div className="investor-token-order-row">
@@ -1306,11 +1349,11 @@ export default function PurchaseTokenPage({
 
             <div className="investor-token-payment-flow investor-token-payment-flow--single" aria-label="Investment action">
               <div className="investor-token-payment-flow__intro">
-                <strong>{usdtSpendingApproved ? 'Ready to invest' : 'Approve USDT spending'}</strong>
+                <strong>{usdtSpendingApproved ? 'Ready to invest' : 'Allow USDT payments for investments'}</strong>
                 <span>
                   {usdtSpendingApproved
-                    ? 'Your USDT spending approval is already in place. Enter the amount you want to buy and choose Invest.'
-                    : 'Approve USDT spending once. This only gives the investment contract permission to use USDT when you choose to invest.'}
+                    ? 'Your USDT payment permission is already active. Enter the amount you want to buy and review your investment.'
+                    : 'This one-time permission lets you make investments using USDT. You will always review and confirm an investment before funds are used.'}
                 </span>
               </div>
 
@@ -1321,7 +1364,7 @@ export default function PurchaseTokenPage({
                   </span>
                   <div className="investor-token-payment-step__heading">
                     <small>{usdtSpendingApproved ? 'Investment' : 'One-time setup'}</small>
-                    <strong>{usdtSpendingApproved ? 'Invest' : 'USDT spending approval'}</strong>
+                    <strong>{usdtSpendingApproved ? 'Review investment' : 'Payment permission'}</strong>
                   </div>
                   <span className={`investor-token-payment-step__status ${usdtApprovalError && !usdtSpendingApproved ? 'is-attention' : ''}`}>
                     {usdtApprovalLoading
@@ -1335,7 +1378,7 @@ export default function PurchaseTokenPage({
                           : 'Approval required'}
                   </span>
                   <details className="investor-token-payment-step__help">
-                    <summary aria-label={usdtSpendingApproved ? 'About investing' : 'About USDT spending approval'} title="About this action">
+                    <summary aria-label={usdtSpendingApproved ? 'About investing' : 'About USDT payment permission'} title="About this action">
                       <Info size={15} />
                     </summary>
                     <div className="investor-token-payment-step__tooltip" role="note">
@@ -1347,8 +1390,8 @@ export default function PurchaseTokenPage({
                         </>
                       ) : (
                         <>
-                          <p>Approval does not buy anything or move USDT by itself. It only allows the investment contract to use USDT when you later choose Invest.</p>
-                          <p>We reuse the approval while your allowance is sufficient, so you do not need to approve every investment.</p>
+                          <p>This permission does not make an investment or move USDT by itself. It only allows USDT to be used after you review and confirm an investment.</p>
+                          <p>The permission can be reused while it remains sufficient, so you do not need to allow payments again for every investment.</p>
                         </>
                       )}
                     </div>
@@ -1381,17 +1424,17 @@ export default function PurchaseTokenPage({
                   {!walletGuard.ready
                     ? 'Connect the investor wallet linked to your profile on the required network to continue.'
                     : usdtApprovalLoading
-                      ? 'Checking your current USDT spending approval…'
+                      ? 'Checking your current USDT payment permission…'
                       : !usdtSpendingApproved
-                        ? usdtApprovalError || 'Approve USDT spending once to enable investments.'
+                        ? usdtApprovalError || 'Allow USDT payments once to enable investments.'
                         : purchaseBlockedByPrevious
-                          ? 'Your submitted investment is still confirming. No new wallet action is needed until it is confirmed.'
+                          ? 'Your submitted investment is still being confirmed. No new action is needed until it completes.'
                           : tokenAmountError
                             ? tokenAmountError
                             : !normalizedTokenAmount
                               ? 'Enter the number of units you want to buy.'
                               : platformQuoteLoading
-                                ? 'Checking the latest on-chain price…'
+                                ? 'Checking the latest investment price…'
                                 : platformQuoteError
                                   ? platformQuoteError
                                   : busyAction
@@ -1413,7 +1456,7 @@ export default function PurchaseTokenPage({
             <Banknote size={17} />
             <div>
               <strong>You will see when it is complete</strong>
-              <p>The investment is complete only after the blockchain transaction is confirmed and recorded in your transaction history.</p>
+              <p>The investment is complete only after it is confirmed and recorded in your activity history.</p>
             </div>
           </Card>
         </aside>
@@ -1449,7 +1492,7 @@ export default function PurchaseTokenPage({
             <span className="investor-token-purchase-history__icon"><History size={18} /></span>
             <div>
               <h2>Investment history</h2>
-              <p>Track your confirmed blockchain investments for {token.symbol}. Submitted transactions update automatically.</p>
+              <p>Track your confirmed investments for {token.symbol}. Submitted records update automatically.</p>
             </div>
           </div>
           <Button
@@ -1473,7 +1516,7 @@ export default function PurchaseTokenPage({
               value={purchaseHistorySearch}
               onChange={handleHistorySearchChange}
               maxLength={100}
-              placeholder="Search purchase ID, amount or transaction ID"
+              placeholder="Search purchase ID, amount or confirmation ID"
             />
           </label>
           <div className="investor-token-purchase-history__filter">
@@ -1536,7 +1579,9 @@ export default function PurchaseTokenPage({
                     <strong>{displayServerAmount(row?.tokenAmount)} {token.symbol}</strong>
                   </span>
                   <span className="investor-token-purchase-history__cell" data-label="USDT amount" role="cell">
-                    <strong>{displayServerAmount(row?.usdtAmount)} USDT</strong>
+                    <strong>
+                      <CurrencyAmount symbol="USDT">{displayServerAmount(row?.usdtAmount)}</CurrencyAmount>
+                    </strong>
                   </span>
                   <span className="investor-token-purchase-history__cell" data-label="Status" role="cell">
                     <span
@@ -1550,7 +1595,7 @@ export default function PurchaseTokenPage({
                   </span>
                   <span className="investor-token-purchase-history__cell" data-label="Payment" role="cell">
                     {rowPaymentUrl ? (
-                      <a href={rowPaymentUrl} target="_blank" rel="noreferrer" className="investor-token-purchase-history__hash" title="View payment transaction">
+                      <a href={rowPaymentUrl} target="_blank" rel="noreferrer" className="investor-token-purchase-history__hash" title="View payment details">
                         {shortHash(rowPaymentHash)} <ExternalLink size={13} />
                       </a>
                     ) : <span className="investor-token-purchase-history__muted">—</span>}
@@ -1563,7 +1608,7 @@ export default function PurchaseTokenPage({
           <div className="investor-token-purchase-history__empty">
             <History size={24} />
             <strong>{purchaseHistorySearchDebounced || purchaseHistoryStatus !== 'all' ? 'No matching purchases' : 'No purchases yet'}</strong>
-            <p>{purchaseHistorySearchDebounced || purchaseHistoryStatus !== 'all' ? 'Try a different search or status filter.' : `Your ${token.symbol} investment transactions will appear here after your wallet submits an investment.`}</p>
+            <p>{purchaseHistorySearchDebounced || purchaseHistoryStatus !== 'all' ? 'Try a different search or status filter.' : `Your ${token.symbol} investment records will appear here after you submit an investment.`}</p>
           </div>
         )}
 
@@ -1575,6 +1620,11 @@ export default function PurchaseTokenPage({
           itemLabel="Purchase history"
         />
       </Card>
+
+      <WalletFundingDialog
+        issue={walletFundingIssue}
+        onClose={() => setWalletFundingIssue(null)}
+      />
     </div>
   );
 }

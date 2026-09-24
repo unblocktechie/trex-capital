@@ -19,8 +19,8 @@ const organization = {
   walletAddress: '0x1111111111111111111111111111111111111111',
 };
 const issuer = { userUid: 'user-1', roleName: 'Issuer' };
-const PLATFORM_CONTROLLER = '0x40e81FAA4e6D54ae0632DF146939bB5858359271';
-const LEGACY_PLATFORM_CONTROLLER = '0x9BEFDF75Dc94bbB36532c5d7A74daab28714f579';
+const PLATFORM_CONTROLLER = '0x4052D80c222111234b89AFDfff597B5De8DA50cd';
+const LEGACY_PLATFORM_CONTROLLER = '0x40e81FAA4e6D54ae0632DF146939bB5858359271';
 
 test('token information trims names, uppercases symbols, and accepts only supported decimals', () => {
   const valid = schemas.tokenInformation.validate({
@@ -55,6 +55,19 @@ test('maximum balance per investor accepts an absolute token amount above 100', 
 
   assert.equal(result.error, undefined);
   assert.equal(result.value.maxBalancePerInvestor, 10000);
+});
+
+test('token compliance schema accepts an empty country list as no geographic restriction', () => {
+  const result = schemas.tokenCompliance.validate({
+    maxInvestors: 100,
+    maxBalancePerInvestor: 500,
+    countryRestrictionMode: 'blocklist',
+    countryUids: [],
+    isDraft: false,
+  });
+
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.value.countryUids, []);
 });
 
 test('current token price update accepts a positive value with up to 18 decimals', () => {
@@ -254,6 +267,56 @@ test('compliance restrictions persist ISO 3166-1 numeric codes from country mast
   assert.equal(persistedCountries[0].numericCode, '840');
   assert.equal(result.countryRestrictions[0].iso3166NumericCode, '840');
   assert.equal(result.token.currentStep, 'governance');
+});
+
+test('completed compliance accepts an empty country list as no geographic restriction', async () => {
+  let persistedCountries;
+  const repository = {
+    findByUserUid: async () => ({ tokenUid: 'token-1', status: 'draft', currentStep: 'compliance' }),
+    replaceCountryRestrictions: async (tokenUid, countries) => {
+      persistedCountries = countries;
+      return [];
+    },
+    updateByUserUid: async (userUid, fields) => ({ userUid, ...fields }),
+  };
+  const service = new TokenService({
+    repository,
+    organizationRepository: { findByUserUid: async () => organization },
+    locationRepository: { findCountries: async () => [] },
+    transactionRunner: (callback) => callback({ transaction: true }),
+  });
+
+  const result = await service.saveCompliance(issuer, {
+    maxInvestors: 2000,
+    maxBalancePerInvestor: 10000,
+    countryRestrictionMode: 'allowlist',
+    countryUids: [],
+    isDraft: false,
+  });
+
+  assert.deepEqual(persistedCountries, []);
+  assert.deepEqual(result.countryRestrictions, []);
+  assert.equal(result.token.currentStep, 'governance');
+});
+
+test('deployment readiness accepts no active country restrictions', async () => {
+  const token = {
+    tokenUid: 'token-1', tokenName: 'Acme Security Token', tokenSymbol: 'ACME', decimals: 18,
+    initialTokenPrice: 1, treasuryWalletAddress: organization.walletAddress,
+    imageStorageKey: 'token.webp', trustedClaimIssuerWalletAddress: organization.walletAddress,
+    maxInvestors: 2000, maxBalancePerInvestor: 10000, countryRestrictionMode: 'allowlist',
+    tokenAgentWalletAddress: PLATFORM_CONTROLLER, identityManagerWalletAddress: organization.walletAddress,
+  };
+  const service = new TokenService({
+    repository: {
+      listClaimTopics: async () => [{ claimTopicUid: 'claim-1', value: 1 }],
+      listCountryRestrictions: async () => [],
+    },
+    imageService: { resolve: () => __filename },
+  });
+
+  const ready = await service.assertTokenReadyForDeployment(token, organization);
+  assert.deepEqual(ready.countryRestrictions, []);
 });
 
 test('final token submission verifies the frontend transaction and marks the only token deployed', async () => {

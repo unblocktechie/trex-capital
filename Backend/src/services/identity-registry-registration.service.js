@@ -84,10 +84,11 @@ class IdentityRegistryRegistrationService {
     if (!context.countryActive || context.countryDeleted || !Number.isInteger(country) || country < 1 || country > 999) {
       throw new ApiError(409, 'Investor verified ISO-3166 numeric country is unavailable.', undefined, 'INVESTOR_COUNTRY_INVALID');
     }
-    if (context.countryRestrictionMode === 'allowlist' && !context.countryListed) {
+    const hasCountryRestrictions = Number(context.countryRestrictionCount || 0) > 0;
+    if (hasCountryRestrictions && context.countryRestrictionMode === 'allowlist' && !context.countryListed) {
       throw new ApiError(409, 'Investor country is not permitted by this token.', undefined, 'INVESTOR_COUNTRY_NOT_ELIGIBLE');
     }
-    if (context.countryRestrictionMode === 'blocklist' && context.countryListed) {
+    if (hasCountryRestrictions && context.countryRestrictionMode === 'blocklist' && context.countryListed) {
       throw new ApiError(409, 'Investor country is restricted for this token.', undefined, 'INVESTOR_COUNTRY_NOT_ELIGIBLE');
     }
     return country;

@@ -40,10 +40,11 @@ class InvestorInvitationService {
     if (!investor.countryUid || !investor.countryNumericCode) {
       return { eligible: false, code: 'INVESTOR_COUNTRY_INVALID', message: 'Investor verified country is unavailable.' };
     }
-    if (token.countryRestrictionMode === 'allowlist' && !investor.countryListed) {
+    const hasCountryRestrictions = Number(token.countryRestrictionCount || 0) > 0;
+    if (hasCountryRestrictions && token.countryRestrictionMode === 'allowlist' && !investor.countryListed) {
       return { eligible: false, code: 'INVESTOR_COUNTRY_NOT_ELIGIBLE', message: 'Investor country is not permitted by this token.' };
     }
-    if (token.countryRestrictionMode === 'blocklist' && investor.countryListed) {
+    if (hasCountryRestrictions && token.countryRestrictionMode === 'blocklist' && investor.countryListed) {
       return { eligible: false, code: 'INVESTOR_COUNTRY_NOT_ELIGIBLE', message: 'Investor country is restricted for this token.' };
     }
     return { eligible: true, code: null, message: null };

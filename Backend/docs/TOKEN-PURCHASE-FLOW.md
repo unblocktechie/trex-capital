@@ -5,7 +5,7 @@
 > `/api/v1/investments/transactions/confirm`, and recovered by the canonical indexer. Do not call
 > the purchase create/confirm/retry endpoints. See `FRONTEND-BLOCKCHAIN-TRANSACTION-GUIDE.md`.
 
-This flow lets a registered investor pay in configured Sepolia USDT and receive the deployed
+This flow let a registered investor pay in the payment token snapshotted on the token and receive the deployed
 ERC-3643 token. The backend is authoritative for amounts, payment verification, and mint
 confirmation. The browser never sends trusted wallet, contract, recipient, price, or raw amount
 values.
@@ -26,7 +26,6 @@ the configured treasury wallet.
 ## Configuration
 
 ```env
-PURCHASE_USDT_ADDRESS=0x8fC7e68897bd74c4B6340d2DC857a7ED2677aF6A
 PURCHASE_PAYMENT_CONFIRMATIONS=2
 PURCHASE_CONFIRMATIONS=2
 PURCHASE_INTENT_TTL_MINUTES=15
@@ -34,8 +33,9 @@ PURCHASE_INDEXER_START_BLOCK=0
 PURCHASE_WORKER_ENABLED=true
 ```
 
-The USDT address is network-specific and configurable. The backend reads `decimals()` from that
-contract rather than assuming six decimals. `DEPLOYER_PRIVATE_KEY`, `DEPLOYER_ADDRESS`,
+Supported payment addresses are maintained in `src/config/payment-tokens.js`; token creation stores
+the issuer's selected address in `tokenMaster.paymentTokenAddress`. The backend reads `decimals()`
+from that contract and validates it against the catalogue. `DEPLOYER_PRIVATE_KEY`, `DEPLOYER_ADDRESS`,
 `SEPOLIA_RPC_URL`, and `BLOCKCHAIN_CHAIN_ID` use the existing blockchain configuration.
 
 ## APIs

@@ -24,11 +24,12 @@ import { WalletControl } from '@/components/wallet/WalletControl';
 import { ROUTES } from '@/config/routes';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useOrganization } from '@/hooks/useOrganization';
+import { formatDate } from '@/utils/date';
 import { useWalletConnection } from '@/hooks/useWalletConnection';
 import { organizationDocumentService } from '@/services/organizationDocumentService';
 import { getErrorMessage } from '@/utils/error';
 import { getWalletErrorMessage } from '@/utils/wallet';
-import { isOrganizationReadyForSubmission } from '@/validations/organization.schemas';
+import { beneficialOwnersSchema, isOrganizationReadyForSubmission } from '@/validations/organization.schemas';
 
 const EditButton = ({ onClick, label }) => (
   <Button variant="ghost" size="sm" icon={Edit3} onClick={onClick} aria-label={`Edit ${label}`}>
@@ -75,6 +76,9 @@ export default function ReviewSubmissionPage() {
 
   const allConfirmed = Object.values(confirmations).every(Boolean);
   const applicationComplete = isOrganizationReadyForSubmission(organization);
+  const beneficialOwnershipValid = beneficialOwnersSchema.safeParse({
+    beneficialOwners: organization.beneficialOwners || [],
+  }).success;
   const walletReady = wallet.isConnected && wallet.isCorrectNetwork && Boolean(wallet.address);
 
   const updateConfirmation = (key, checked) => {
@@ -191,7 +195,7 @@ export default function ReviewSubmissionPage() {
                 label: 'Country of Incorporation',
                 value: jurisdiction.countryOfIncorporationName || jurisdiction.countryOfIncorporation,
               },
-              { label: 'Date of Incorporation', value: jurisdiction.dateOfIncorporation },
+              { label: 'Date of Incorporation', value: jurisdiction.dateOfIncorporation ? formatDate(jurisdiction.dateOfIncorporation, 'MMM D, YYYY') : 'Not provided' },
               {
                 label: 'Tax ID / VAT / GST Number',
                 value: jurisdiction.taxIdentificationNumber || 'Not provided',
@@ -219,6 +223,11 @@ export default function ReviewSubmissionPage() {
               </div>
             </header>
             <div className="grid gap-3 p-5 sm:p-6">
+              {!beneficialOwnershipValid ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs leading-5 text-rose-800 sm:p-4 sm:text-sm" role="alert">
+                  Each UBO must have more than 1.00% ownership (maximum 2 decimal places), and the combined ownership must equal exactly 100.00%. Edit the UBO details before submitting.
+                </div>
+              ) : null}
               {organization.beneficialOwners.map((owner, index) => (
                 <article
                   className="grid grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4"
@@ -240,7 +249,7 @@ export default function ReviewSubmissionPage() {
                     </small>
                   </div>
                   <b className="rounded-lg bg-emerald-100 px-2.5 py-1 text-sm text-emerald-800">
-                    {Number(owner.ownershipPercentage).toFixed(2)}%
+                    {Number(owner.ownershipPercentage).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%
                   </b>
                 </article>
               ))}

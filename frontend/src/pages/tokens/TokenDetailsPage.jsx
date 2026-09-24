@@ -1,7 +1,6 @@
 import {
   BadgeCheck,
   CircleDollarSign,
-  ExternalLink,
   FileCheck2,
   Fingerprint,
   Landmark,
@@ -23,6 +22,7 @@ import {
   InfoCallout,
   StatusBadge,
 } from '@/components/token-issuance/IssuancePrimitives';
+import { TokenIcon } from '@/components/common/TokenIcon';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -48,7 +48,6 @@ import {
   loadTokenPriceSyncRecovery,
   saveTokenPriceSyncRecovery,
 } from '@/services/issuer/tokenPriceSyncRecovery.service';
-import { shortenWalletAddress } from '@/utils/wallet';
 import { readTrexTokenPaused } from '@/services/trexDeployment.service';
 import { useTokenIssuanceStore } from '@/store/tokenIssuance.store';
 
@@ -394,7 +393,7 @@ export default function TokenDetailsPage() {
 
   const resumeIncompleteSetup = () => {
     if (!transactionHash) {
-      toast.error('The confirmed token-creation transaction ID is unavailable.');
+      toast.error('The confirmed asset-creation reference is unavailable.');
       return;
     }
     const retryMode = setupNeedsTransferActivation ? 'configuration' : 'price-confirmation';
@@ -491,7 +490,7 @@ export default function TokenDetailsPage() {
       } catch (syncError) {
         setPriceEditorOpen(false);
         toast.warning('Price updated — account display is still syncing', {
-          description: 'The new price is active on-chain. We will retry the account update automatically; do not submit another price transaction.',
+          description: 'The new price is active. We will retry the account update automatically; do not submit another price change.',
         });
         console.warn('Token price account synchronization is pending.', syncError);
       }
@@ -527,21 +526,13 @@ export default function TokenDetailsPage() {
             </div>
           </div>
         </div>
-        <div className="token-dashboard-header__actions">
-          {setupNeedsTransferActivation || onchainPriceStatus === 'unset' ? (
+        {setupNeedsTransferActivation || onchainPriceStatus === 'unset' ? (
+          <div className="token-dashboard-header__actions">
             <Button onClick={resumeIncompleteSetup}>
               Finish Setup
             </Button>
-          ) : null}
-          <Button
-            variant="secondary"
-            icon={ExternalLink}
-            onClick={() => window.open(transactionExplorer, '_blank', 'noopener,noreferrer')}
-            disabled={!transactionExplorer}
-          >
-            View creation transaction
-          </Button>
-        </div>
+          </div>
+        ) : null}
         <p className="token-dashboard-header__description">
           {information.description ||
             'Review the price, investor requirements, investment limits, and management access for this asset.'}
@@ -554,7 +545,10 @@ export default function TokenDetailsPage() {
                 <PencilLine size={15} /> Edit
               </button>
             </div>
-            <strong>{formatTokenPrice(currentPrice)}</strong>
+            <strong className="token-dashboard-header__price-value">
+              <TokenIcon symbol="USDT" size="xs" />
+              <span>{formatTokenPrice(currentPrice)}</span>
+            </strong>
             <span>Used for new purchases. Initial price: {formatTokenPrice(initialPrice)}</span>
             {onchainPriceStatus === 'unset' ? <em className="token-dashboard-header__price-note is-warning">Price activation required before trading</em> : null}
             {onchainPriceStatus === 'unavailable' ? <em className="token-dashboard-header__price-note">Live price check unavailable</em> : null}
@@ -573,34 +567,46 @@ export default function TokenDetailsPage() {
                 ? 'Finish setup before investors can receive or transfer this asset.'
                 : onchainPriceStatus === 'unset'
                   ? 'Set the current investor price before investors make purchases.'
-                  : 'Investor checks and limits are applied automatically before a transaction is accepted.'}
+                  : 'Investor checks and limits are applied automatically before an investment or transfer is accepted.'}
             </span>
           </div>
         </div>
         <div className="token-dashboard-header__contract-summary">
           <div className="token-dashboard-header__contract-copy">
-            <small>Asset contract</small>
-            <strong>Blockchain address for this asset</strong>
-            <span>Use this address when you need to identify or verify this asset.</span>
+            <small>Technical asset information</small>
+            <strong>Asset references are available when you need them</strong>
+            <span>Most users do not need these details for day-to-day asset management.</span>
           </div>
-          <AddressDisplay
-            address={tokenContractAddress}
-            emptyLabel="Contract address not available yet"
-            explorerUrl={tokenExplorer}
-            compact
-            showCopyText
-            copyLabel="Copy asset contract address"
-            className="token-dashboard-header__contract-address"
-          />
         </div>
-        <HelpDetails title="View technical details" className="token-dashboard-header__technical">
-          <p><strong>Blockchain network:</strong> {network}. The asset contract above is the unique blockchain address for this investment asset. These details are mainly useful for technical support or blockchain verification.</p>
-        </HelpDetails>
+        <div id="asset-technical-details">
+          <HelpDetails title="View technical details" className="token-dashboard-header__technical">
+            <p><strong>Network:</strong> {network}. These details are mainly useful for technical support or independent verification.</p>
+            <AddressDisplay
+              label="Asset contract address"
+              address={tokenContractAddress}
+              emptyLabel="Contract address not available yet"
+              explorerUrl={tokenExplorer}
+              compact
+              showCopyText
+              copyLabel="Copy asset contract address"
+              className="token-dashboard-header__contract-address"
+            />
+            <AddressDisplay
+              label="Organization payment account"
+              address={ownerAddress}
+              emptyLabel="Payment account not available"
+              showFullAddress
+            />
+            {transactionExplorer ? (
+              <a href={transactionExplorer} target="_blank" rel="noreferrer">View asset creation confirmation</a>
+            ) : null}
+          </HelpDetails>
+        </div>
       </header>
 
       {setupNeedsTransferActivation ? (
         <InfoCallout title="Setup is not finished" tone="warning" icon={ShieldCheck}>
-          Transfers are still paused on the blockchain, so investors cannot receive or transfer this asset yet. Finish Setup retries only the missing activation step and will not create another asset.
+          Transfers are still paused, so investors cannot receive or transfer this asset yet. Finish Setup retries only the missing activation step and will not create another asset.
         </InfoCallout>
       ) : null}
 
@@ -610,11 +616,9 @@ export default function TokenDetailsPage() {
         <DetailMetric icon={CircleDollarSign} label="Unit precision" value={`${information.decimals || '18'} decimal places`} helper="Controls how small a fractional unit can be" />
         <DetailMetric
           icon={WalletCards}
-          label="Funds wallet"
-          value={shortenWalletAddress(ownerAddress, 5, 5)}
-          titleValue={ownerAddress}
+          label="Payment account"
+          value="Organization wallet"
           helper="Receives purchase funds"
-          mono
         />
       </section>
 

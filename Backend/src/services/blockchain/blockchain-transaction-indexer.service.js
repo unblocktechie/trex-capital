@@ -51,27 +51,29 @@ class BlockchainTransactionIndexerService {
 
   async candidates(provider, tokens, fromBlock, toBlock, addressBatchSize) {
     const candidates = new Map();
-    const paymentAddress = this.transactionService.paymentAddress();
+    const paymentAddresses = typeof this.transactionService.paymentAddresses === 'function'
+      ? this.transactionService.paymentAddresses()
+      : [this.transactionService.paymentAddress()];
     const controllerAddresses = new Set(tokens
       .map((token) => token.tokenAgentWalletAddress)
       .filter(ethers.isAddress)
       .map((address) => ethers.getAddress(address)));
     // Include the current default even before the first token using it has been deployed.
     controllerAddresses.add(this.transactionService.controllerAddress());
-    const paymentLogs = await provider.getLogs({
-      address: paymentAddress,
-      topics: [this.transferTopic],
-      fromBlock,
-      toBlock,
-    });
-    for (const log of paymentLogs) {
-      const hash = log.transactionHash.toLowerCase();
-      if (candidates.has(hash)) continue;
-      // Filtering by the outer target prevents unrelated USDT transfers from entering verification.
+    for (let offset = 0; offset < paymentAddresses.length; offset += addressBatchSize) {
+      const address = paymentAddresses.slice(offset, offset + addressBatchSize);
+      if (!address.length) continue;
       // eslint-disable-next-line no-await-in-loop
-      const tx = await provider.getTransaction(hash);
-      if (tx && [...controllerAddresses].some((address) => sameAddress(tx.to, address))) {
-        candidates.set(hash, { txHash: hash });
+      const paymentLogs = await provider.getLogs({ address, topics: [this.transferTopic], fromBlock, toBlock });
+      for (const log of paymentLogs) {
+        const hash = log.transactionHash.toLowerCase();
+        if (candidates.has(hash)) continue;
+        // Filtering by the outer target prevents unrelated payment-token transfers from entering verification.
+        // eslint-disable-next-line no-await-in-loop
+        const tx = await provider.getTransaction(hash);
+        if (tx && [...controllerAddresses].some((controller) => sameAddress(tx.to, controller))) {
+          candidates.set(hash, { txHash: hash });
+        }
       }
     }
 

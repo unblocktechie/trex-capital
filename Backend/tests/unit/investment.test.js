@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const schemas = require('../../src/schemas/investment.schema');
 const { InvestmentService } = require('../../src/services/investment.service');
+const { InvestmentRepository } = require('../../src/repositories/investment.repository');
 
 const investor = { userUid: 'user-inv', roleName: 'Investor' };
 const issuer = { userUid: 'user-iss', roleName: 'Issuer' };
@@ -144,6 +145,23 @@ test('an admin may filter by any status; an investor is forced to deployed', asy
   await i.service.listTokens(investor, { status: 'draft' });
   assert.equal(i.state.listArgs.status, 'deployed');
   assert.equal(i.state.listArgs.investorUserUid, investor.userUid);
+});
+
+test('marketplace country filter applies allowlist or blocklist only when restrictions exist', async () => {
+  const calls = [];
+  const executor = {
+    execute: async (sql, params) => {
+      calls.push({ sql, params });
+      return [/COUNT\(\*\)/i.test(sql) ? [{ total: 0 }] : []];
+    },
+  };
+  await new InvestmentRepository().listMarketplaceTokens({
+    investorUserUid: investor.userUid,
+  }, executor);
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    assert.match(call.sql, /EXISTS \(\s*SELECT 1 FROM `tokenCountryRestriction` configuredRestriction/i);
+  }
 });
 
 test('token details include the treasury wallet address', async () => {

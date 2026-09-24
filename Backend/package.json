@@ -10,7 +10,8 @@
     "check": "node scripts/check-syntax.js",
     "test": "node --test tests/**/*.test.js",
     "seed:admin": "node scripts/seed-admin.js",
-    "seed:locations": "node scripts/seed-locations.js"
+    "seed:locations": "node scripts/seed-locations.js",
+    "seed:test-users": "node scripts/seed-test-users.js"
   },
   "engines": {
     "node": ">=20.0.0"

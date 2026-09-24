@@ -6,12 +6,14 @@ const { TokenRedemptionService } = require('../../src/services/token-redemption.
 const address = (char) => ethers.getAddress(`0x${char.repeat(40)}`);
 const TOKEN = address('1'); const INVESTOR = address('2'); const TREASURY = address('3');
 const PLATFORM = address('4'); const USDT = address('5');
+const PAYMENT_TOKEN = ethers.getAddress('0x86B14D29A59b745bF08c42661322d13142d5eb49');
 
 const context = {
   interestUid: 'interest-1', interestStatus: 'registered', tokenUid: 'token-1', organizationUid: 'org-1',
   investorUid: 'investor-1', investorUserUid: 'user-1', investorWalletAddress: INVESTOR,
   investorStatus: 'submitted', investorActive: true, investorDeleted: false, tokenAddress: TOKEN,
   treasuryWalletAddress: TREASURY, tokenDecimals: 2, tokenPrice: '10', tokenStatus: 'deployed',
+  paymentTokenAddress: PAYMENT_TOKEN,
   tokenActive: true, issuerUserUid: 'issuer-1', organizationStatus: 'approved', organizationActive: true,
   hasActivePurchase: false,
 };
@@ -34,7 +36,7 @@ test('creates a backend-authoritative redemption intent and returns typed author
     authorizationPayload: (row) => ({ message: { redemptionUid: row.redemptionUid, tokenAmountRaw: row.tokenAmountRaw } }),
   };
   const service = new TokenRedemptionService({ repository, blockchain, executionService: {},
-    config: { redemptionUsdtAddress: USDT, redemptionAuthorizationTtlMinutes: 30 }, transactionRunner: (work) => work({}) });
+    config: { redemptionAuthorizationTtlMinutes: 30 }, transactionRunner: (work) => work({}) });
   const result = await service.create({ userUid: 'user-1', roleName: 'Investor' }, 'token-1', {
     tokenAmount: '2.5', idempotencyKey: 'redeem-001',
   });
@@ -51,7 +53,7 @@ test('redemption cannot exceed the investor unfrozen token balance', async () =>
   const service = new TokenRedemptionService({ repository, executionService: {},
     blockchain: { prepare: async () => ({ chainId: 11155111, usdtDecimals: 6, balanceBeforeRaw: '1000',
       frozenBeforeRaw: '900', totalSupplyBeforeRaw: '10000', platformWalletAddress: PLATFORM,
-      platformIsAgent: true, preparedAtBlock: 100 }) }, config: { redemptionUsdtAddress: USDT } });
+      platformIsAgent: true, preparedAtBlock: 100 }) }, config: {} });
   await assert.rejects(service.create({ userUid: 'user-1', roleName: 'Investor' }, 'token-1', {
     tokenAmount: '2', idempotencyKey: 'redeem-002',
   }), (error) => error.code === 'INSUFFICIENT_AVAILABLE_TOKEN_BALANCE');
@@ -78,7 +80,7 @@ test('redemption payout is calculated from the current snapshotted token price',
     authorizationPayload: () => ({}),
   };
   const service = new TokenRedemptionService({ repository, blockchain, executionService: {},
-    config: { redemptionUsdtAddress: USDT }, transactionRunner: (work) => work({}) });
+    config: {}, transactionRunner: (work) => work({}) });
   const result = await service.create({ userUid: 'user-1', roleName: 'Investor' }, 'token-1', {
     tokenAmount: '2', idempotencyKey: 'redeem-current-price',
   });

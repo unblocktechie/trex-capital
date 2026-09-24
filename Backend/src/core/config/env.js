@@ -95,7 +95,7 @@ const env = Object.freeze({
     deployerAddress: process.env.DEPLOYER_ADDRESS,
     // Backend-authoritative Token Agent assigned to every newly configured TREX token.
     platformControllerAddress: process.env.PLATFORM_CONTROLLER_ADDRESS
-      || '0x40e81FAA4e6D54ae0632DF146939bB5858359271',
+      || '0x4052D80c222111234b89AFDfff597B5De8DA50cd',
     identityFactoryAddress: process.env.IDENTITY_FACTORY_ADDRESS,
     trexFactoryAddress: process.env.TREX_FACTORY_ADDRESS,
     confirmations: Number(process.env.BLOCKCHAIN_CONFIRMATIONS || 2),
@@ -135,7 +135,6 @@ const env = Object.freeze({
     deploymentAttemptTtlMinutes: Number(process.env.DEPLOYMENT_ATTEMPT_TTL_MINUTES || 20),
     // Master switch for the background deployment-sync runner (overrides the DB setting when false).
     deploymentSyncEnabled: booleanValue(process.env.TREX_DEPLOYMENT_SYNC_ENABLED, true),
-    purchaseUsdtAddress: process.env.PURCHASE_USDT_ADDRESS || '0x8fC7e68897bd74c4B6340d2DC857a7ED2677aF6A',
     // The interactive confirm API may accept a successfully mined payment earlier than the
     // conservative worker finality threshold so it can submit the platform mint immediately.
     purchasePaymentConfirmations: Number(process.env.PURCHASE_PAYMENT_CONFIRMATIONS || 2),
@@ -147,8 +146,6 @@ const env = Object.freeze({
     purchaseWorkerEnabled: booleanValue(process.env.PURCHASE_WORKER_ENABLED, true),
     // Manual issuer-funded redemption. Payment and all platform token actions are independently
     // verified at the conservative redemption confirmation threshold.
-    redemptionUsdtAddress: process.env.REDEMPTION_USDT_ADDRESS
-      || process.env.PURCHASE_USDT_ADDRESS || '0x8fC7e68897bd74c4B6340d2DC857a7ED2677aF6A',
     redemptionConfirmations: Number(process.env.REDEMPTION_CONFIRMATIONS || 2),
     redemptionAuthorizationTtlMinutes: Number(process.env.REDEMPTION_AUTHORIZATION_TTL_MINUTES || 30),
     redemptionIndexerStartBlock: Number(process.env.REDEMPTION_INDEXER_START_BLOCK || 0),

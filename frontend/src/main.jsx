@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider } from 'wagmi';
 import App from './App';
+import { router } from '@/routes/router';
+import { authRedirectService } from '@/services/auth-redirect.service';
 import { setupAxiosInterceptors } from '@/api/axios';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { queryClient } from '@/lib/queryClient';
@@ -13,6 +15,7 @@ import '@/assets/styles/token-issuance.css';
 import '@/assets/styles/investor.css';
 import '@/assets/styles/typography.css';
 
+authRedirectService.setNavigator((to, options) => router.navigate(to, options));
 setupAxiosInterceptors();
 
 ReactDOM.createRoot(document.getElementById('root')).render(

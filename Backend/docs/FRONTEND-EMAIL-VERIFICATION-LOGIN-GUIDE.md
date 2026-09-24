@@ -36,8 +36,8 @@ Successful verification returns the same session structure as password login:
     "user": {
       "userUid": "...",
       "roleUid": "...",
-      "fullName": "Abc Def",
-      "email": "abc@example.com",
+      "fullName": "Nemish Rupapara",
+      "email": "nemish@example.com",
       "roleName": "Investor",
       "emailVerified": true
     }

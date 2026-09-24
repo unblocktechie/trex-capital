@@ -26,6 +26,7 @@ const historyFields = [
 const MARKETPLACE_TOKEN_COLUMNS = `t.\`tokenUid\`, t.\`organizationUid\`, t.\`tokenName\`, t.\`tokenSymbol\`,
   t.\`decimals\`, t.\`initialTokenPrice\`, t.\`currentTokenPrice\`,
   COALESCE(t.\`currentTokenPrice\`, t.\`initialTokenPrice\`) AS \`tokenPrice\`,
+  t.\`paymentTokenAddress\`,
   t.\`tokenDescription\`, t.\`imageStorageKey\`, t.\`imageMimeType\`,
   t.\`maxInvestors\`, t.\`maxInvestors\` AS \`maxHolder\`, t.\`maxBalancePerInvestor\`, t.\`countryRestrictionMode\`,
   t.\`tokenAddress\`, t.\`status\`, t.\`deployedAt\`, t.\`createdAt\`, t.\`updatedAt\`,
@@ -74,6 +75,11 @@ class InvestmentRepository {
         FROM \`investorMaster\` i
         WHERE i.\`userUid\` = ? AND i.\`countryUid\` IS NOT NULL
           AND i.\`isActive\` = 1 AND i.\`isDeleted\` = 0
+          AND EXISTS (
+            SELECT 1 FROM \`tokenCountryRestriction\` configuredRestriction
+            WHERE configuredRestriction.\`tokenUid\` = t.\`tokenUid\`
+              AND configuredRestriction.\`isActive\` = 1 AND configuredRestriction.\`isDeleted\` = 0
+          )
           AND (
             (t.\`countryRestrictionMode\` = 'blocklist' AND EXISTS (
               SELECT 1 FROM \`tokenCountryRestriction\` tr

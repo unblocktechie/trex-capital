@@ -54,12 +54,18 @@ copy .env.example .env
 mysql -u root -p < database/trex-launchpad.sql
 npm run seed:locations
 npm run seed:admin
+npm run seed:test-users
 npm run dev
 ```
 
 Edit `.env` before running the schema/seed. Generate a strong JWT secret, use a strong one-time administrator password, and remove `ADMIN_PASSWORD` from `.env` after seeding.
 
 `seed:locations` imports the bundled ISO country/state/city dataset into the location master tables and can safely be rerun. Existing installations should rerun the idempotent main schema, then run `npm run seed:locations`; the organization tables, form options, menu, and issuer permissions are added without deleting existing data.
+
+`seed:test-users` is an idempotent development/test utility that prepares 100 verified Issuer and
+100 verified Investor logins (`issuer1@mail.com`–`issuer100@mail.com` and
+`investor1@mail.com`–`investor100@mail.com`) with the shared default password `Abc@12345`. It is
+blocked in production unless `ALLOW_TEST_USER_SEED=true` is explicitly set.
 
 Existing organization installations must apply `database/migrations/20260727_add_organization_user_notified.sql` to add the notification flag and endpoint permission.
 Apply `database/migrations/20260727_add_organization_wallet_address.sql` before using wallet-backed organization submission.
@@ -83,13 +89,15 @@ Apply `database/migrations/20260823_add_registered_investment_status.sql` so ver
 
 Apply `database/migrations/20260824_add_unique_investor_wallet.sql` to prevent the same normalized wallet address from being registered to multiple submitted investor profiles.
 
-Apply `database/migrations/20260825_add_token_purchase_flow.sql` for backend-authoritative USDT payment intents, platform Token Agent minting, transaction audit history, RBAC, and hybrid payment/mint recovery. Configure `PURCHASE_USDT_ADDRESS` per network and `PURCHASE_PAYMENT_CONFIRMATIONS` for the synchronous confirm-and-mint path. See `docs/TOKEN-PURCHASE-FLOW.md`.
+Apply `database/migrations/20260825_add_token_purchase_flow.sql` for the retained legacy purchase history, then `database/migrations/20260908_add_multi_payment_tokens.sql` for issuer-selected payment currencies and generic canonical payment metadata. Supported payment tokens are configured in `src/config/payment-tokens.js`; there is no per-flow payment-token environment variable. See `docs/TOKEN-PURCHASE-FLOW.md`.
+
+Frontend selection, Controller calldata, verification, recovery, and migration details are in `docs/MULTI-PAYMENT-TOKEN-GUIDE.md`.
 
 Apply `database/migrations/20260826_expire_abandoned_token_purchases.sql` to expire abandoned no-hash payment intents after their configurable deadline. The worker waits for the global USDT indexer to catch up before expiring them.
 
 Apply `database/migrations/20260827_add_investor_token_purchase_history.sql` for the investor-owned token purchase history endpoint. Frontend integration is documented in `docs/FRONTEND-TOKEN-PURCHASE-FLOW-GUIDE.md`.
 
-Apply `database/migrations/20260828_add_token_redemption_flow.sql` for the off-chain request/approval records and `20260907_allow_issuer_redemption_confirmation.sql` for Issuer confirmation access. The token-owning Issuer signs the atomic Controller `redeem(investor, token, amount)` transaction; the backend verifies/indexes its burn and USDT settlement with the standardized two-block threshold. See `docs/TOKEN-REDEMPTION-FLOW.md` and `docs/FRONTEND-TOKEN-REDEMPTION-GUIDE.md`.
+Apply `database/migrations/20260828_add_token_redemption_flow.sql` for the off-chain request/approval records and `20260907_allow_issuer_redemption_confirmation.sql` for Issuer confirmation access. The token-owning Issuer signs the atomic Controller `redeem(investor, token, paymentToken, amount)` transaction; the backend verifies/indexes its burn and selected-payment settlement with the standardized two-block threshold. See `docs/TOKEN-REDEMPTION-FLOW.md` and `docs/FRONTEND-TOKEN-REDEMPTION-GUIDE.md`.
 
 Apply `database/migrations/20260904_set_blockchain_confirmations_to_two.sql` to standardize all existing database-backed deployment, claim, registry, purchase, redemption, and transfer worker confirmation settings at two blocks.
 

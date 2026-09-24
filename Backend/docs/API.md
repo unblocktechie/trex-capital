@@ -367,7 +367,16 @@ Publicly returns:
 
 - `decimals`: `[2, 6, 8, 18]`
 - `countryRestrictionModes`: `allowlist`, `blocklist`
+- `paymentTokens`: the same active payment-token catalogue returned by `GET /payment-tokens`
 - Active claim topics from `claimTopicMaster`, including their numeric on-chain `value`. Seeded KYC has value `1`; Accredited Investor has value `2`.
+
+### `GET /payment-tokens`
+
+Publicly returns every payment currency supported for purchase and redemption. Each item contains
+`paymentTokenCode`, `name`, `symbol`, `contractAddress`, `decimals`, `chainId`, `networkName`,
+`explorerUrl`, `supportedActions`, and `isActive`. Sepolia currently supports USDT at
+`0x86B14D29A59b745bF08c42661322d13142d5eb49` and USDC at
+`0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`.
 
 Country choices come from `GET /locations/countries`. Each result includes `countryCode` (alpha-2) and `numericCode` (three-character ISO 3166-1 numeric code, such as `840` for the United States). Token restrictions persist the server-resolved numeric code.
 
@@ -385,6 +394,7 @@ tokenSymbol=trex
 decimals=18
 initialTokenPrice=1.00
 treasuryWalletAddress=0x1111111111111111111111111111111111111111
+paymentTokenAddress=0x86B14D29A59b745bF08c42661322d13142d5eb49
 tokenDescription=Institutional security token
 isDraft=false
 tokenImage=<PNG, JPEG, WebP, or SVG file>
@@ -405,8 +415,8 @@ Only the authenticated issuer who owns the active deployed token may change its 
 ```
 
 The value must be greater than zero with no more than 18 decimal places. The update changes only
-`currentTokenPrice`; it never changes `initialTokenPrice`. New purchase and redemption intents use
-this value to calculate USDT, while transfer intents snapshot it as the transfer-time valuation.
+`currentTokenPrice`; it never changes `initialTokenPrice`. New purchase and redemption operations use
+this value with the token's selected payment currency, while transfer intents snapshot it as the transfer-time valuation.
 Existing pending and completed transaction records retain their original price snapshot.
 
 ### `GET /tokens/me/image`
@@ -443,7 +453,7 @@ A completed step requires at least one active claim topic and `organizationActsA
 }
 ```
 
-`maxInvestors` must be an integer from 1 through 1,000,000,000. `maxBalancePerInvestor` is the absolute maximum token amount that one investor may hold; it must be greater than 0 and supports up to 18 decimal places. It is not a percentage. A completed step requires at least one unique country; every UID is resolved against active `countryMaster` rows, and `iso3166NumericCode` is persisted from the master.
+`maxInvestors` must be an integer from 1 through 1,000,000,000. `maxBalancePerInvestor` is the absolute maximum token amount that one investor may hold; it must be greater than 0 and supports up to 18 decimal places. It is not a percentage. `countryUids` may be empty; an empty array means the token has no geographic restriction, regardless of the supplied mode. For a non-empty array, every UID is resolved against active `countryMaster` rows and `iso3166NumericCode` is persisted from the master.
 
 ### `PUT /tokens/me/governance`
 
@@ -457,7 +467,7 @@ A completed step requires at least one active claim topic and `organizationActsA
 `identityManagerWalletAddress` must be a valid EVM address matching the approved organization's
 `walletAddress` case-insensitively. The backend automatically stores
 For a newly created token, `tokenAgentWalletAddress = PLATFORM_CONTROLLER_ADDRESS` (default
-`0x40e81FAA4e6D54ae0632DF146939bB5858359271`). The frontend must treat this field as read-only
+`0x4052D80c222111234b89AFDfff597B5De8DA50cd`). The frontend must treat this field as read-only
 and should omit it from the request. A client-supplied Token Agent value is ignored. Existing token
 rows keep the Token Agent assigned when they were created.
 
@@ -624,10 +634,10 @@ not prepare, sign, relay, mint, burn, transfer USDT, or continue these transacti
 - `POST /investments/transactions/confirm` accepts `{ chainId, txHash, tokenUid, expectedAction }`,
   where `expectedAction` is `INVEST`, `TRANSFER`, or `REDEMPTION`. It independently verifies the
   current canonical transaction, role/ownership, sender, target, calldata, deployed token, receipt, events,
-  controller configuration, exact on-chain quote/USDT settlement, and confirmations. It returns
+  controller configuration, issuer-selected payment token, exact on-chain quote/settlement, and confirmations. It returns
   HTTP 200 with `SUBMITTED`, `CONFIRMED`, or `FAILED`; authoritative mismatches remain 4xx.
   Investors may submit `INVEST` and `TRANSFER` hashes. The token-owning Issuer may submit the new
-  `redeem(investor, token, tokenAmount)` `REDEMPTION` hash.
+  `redeem(investor, token, paymentToken, tokenAmount)` `REDEMPTION` hash.
 - `GET /investments/transactions?page=1&limit=20&tokenUid=&type=ALL&status=ALL&walletAddress=&txHash=&fromDate=&toDate=&search=`
   returns role-scoped canonical history. Investor access is wallet-scoped; issuer access is
   organization-scoped; Super Administrator access is global.
@@ -654,8 +664,8 @@ for execution or recovery. See `docs/BLOCKCHAIN-TRANSACTION-INDEXER.md` and
 - `GET /investments/purchases/{purchaseUid}` returns payment, mint, synchronization, errors, and
   append-only legacy transaction history.
 
-The investor reads live USDT allowance, approves the Platform Controller when necessary, and calls
-`PlatformController.buy()` directly. The controller atomically collects USDT and issues the token.
+The investor reads live allowance on the token-selected payment contract, approves the Platform Controller when necessary, and calls
+`PlatformController.buy(token, paymentToken, tokenAmount)` directly. The controller atomically collects payment and issues the token.
 The old purchase create/confirm/retry POST endpoints and backend mint workers are retired.
 
 ## Token redemption
@@ -665,9 +675,9 @@ The old purchase create/confirm/retry POST endpoints and backend mint workers ar
 - Investor list/detail/cancel APIs and issuer list/detail/approve/reject APIs retain the off-chain
   request and review workflow. Issuer detail includes `investorName`.
 - Issuer approval no longer queues a token lock. The issuer grants the Platform Controller reusable
-  USDT allowance from the issuer wallet.
-- After approval/funding, the investor calls `PlatformController.redeem()` directly. The controller
-  atomically burns tokens and transfers issuer USDT to the investor.
+  selected-payment-token allowance from the issuer wallet.
+- After approval/funding, the issuer calls `PlatformController.redeem(investor, token, paymentToken, tokenAmount)` directly. The controller
+  atomically burns tokens and transfers issuer payment tokens to the investor.
 - The matching legacy request becomes `COMPLETED` only after canonical verification/indexing.
 
 The legacy redemption retry and issuer payment-confirm endpoints, platform lock/burn/unlock worker,

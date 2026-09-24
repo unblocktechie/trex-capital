@@ -7,7 +7,10 @@ class InvestorInvitationRepository {
     const rows = await execute(
       `SELECT t.*, o.\`legalCompanyName\`, o.\`status\` AS \`organizationStatus\`,
               o.\`isActive\` AS \`organizationActive\`, o.\`walletAddress\` AS \`organizationWalletAddress\`,
-              o.\`userUid\` AS \`issuerUserUid\`, u.\`fullName\` AS \`issuerFullName\`, u.\`email\` AS \`issuerEmail\`
+              o.\`userUid\` AS \`issuerUserUid\`, u.\`fullName\` AS \`issuerFullName\`, u.\`email\` AS \`issuerEmail\`,
+              (SELECT COUNT(*) FROM \`tokenCountryRestriction\` tr
+               WHERE tr.\`tokenUid\` = t.\`tokenUid\` AND tr.\`isActive\` = 1 AND tr.\`isDeleted\` = 0)
+                AS \`countryRestrictionCount\`
        FROM \`tokenMaster\` t
        INNER JOIN \`organizationMaster\` o
          ON o.\`organizationUid\` = t.\`organizationUid\` AND o.\`isDeleted\` = 0

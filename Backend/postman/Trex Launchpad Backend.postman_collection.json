@@ -1881,6 +1881,32 @@
           ]
         },
         {
+          "name": "Supported Payment Tokens",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/payment-tokens",
+            "description": "Returns the authoritative payment-token catalogue used by token creation, purchase, and redemption."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Payment tokens are returned', () => pm.response.to.have.status(200));",
+                  "const tokens = pm.response.json().data;",
+                  "pm.expect(tokens.length).to.be.at.least(2);",
+                  "pm.collectionVariables.set('paymentTokenAddress', tokens[0].contractAddress);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Get My Token Form",
           "request": {
             "method": "GET",
@@ -1930,6 +1956,11 @@
                 {
                   "key": "treasuryWalletAddress",
                   "value": "{{walletAddress}}",
+                  "type": "text"
+                },
+                {
+                  "key": "paymentTokenAddress",
+                  "value": "{{paymentTokenAddress}}",
                   "type": "text"
                 },
                 {
@@ -2042,7 +2073,8 @@
                 }
               }
             },
-            "url": "{{baseUrl}}/api/v1/tokens/me/compliance"
+            "url": "{{baseUrl}}/api/v1/tokens/me/compliance",
+            "description": "Use unique country UIDs for allowlist/blocklist behavior. Set countryUids to [] to create a token with no geographic restriction."
           },
           "event": [
             {
@@ -2051,8 +2083,9 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Token compliance rules are saved', () => pm.response.to.have.status(200));",
-                  "const restriction = pm.response.json().data.countryRestrictions[0];",
-                  "pm.expect(restriction.iso3166NumericCode).to.match(/^\\d{3}$/);"
+                  "const restrictions = pm.response.json().data.countryRestrictions;",
+                  "pm.expect(restrictions).to.be.an('array');",
+                  "if (restrictions.length) pm.expect(restrictions[0].iso3166NumericCode).to.match(/^\\d{3}$/);"
                 ]
               }
             }
@@ -2089,7 +2122,7 @@
                   "pm.test('Token governance roles are saved', () => pm.response.to.have.status(200));",
                   "const token = pm.response.json().data;",
                   "pm.expect(token.currentStep).to.eql('review');",
-                  "pm.expect(token.tokenAgentWalletAddress.toLowerCase()).to.eql('0x40e81faa4e6d54ae0632df146939bb5858359271');"
+                  "pm.expect(token.tokenAgentWalletAddress.toLowerCase()).to.eql('0x4052d80c222111234b89afdfff597b5de8da50cd');"
                 ]
               }
             }
@@ -2747,7 +2780,7 @@
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/api/v1/investments/transactions/confirm",
-            "description": "Call after the owning issuer signs PlatformController.redeem(investor, token, tokenAmount). The backend verifies issuer ownership and sender, the exact calldata, TokensRedeemed event, token burn, USDT settlement, quote, receipt, and confirmations."
+            "description": "Call after the owning issuer signs PlatformController.redeem(investor, token, paymentToken, tokenAmount). The backend verifies issuer ownership and sender, selected payment token, exact calldata, TokensRedeemed event, token burn, settlement, quote, receipt, and confirmations."
           },
           "event": [{
             "listen": "test",
@@ -3430,7 +3463,7 @@
     },
     {
       "name": "Token Redemption",
-      "description": "Off-chain redemption request and issuer decision. Issuer grants controller USDT allowance when needed and signs PlatformController.redeem(investor, token, amount); canonical confirmation/indexing records the atomic burn and payout.",
+      "description": "Off-chain redemption request and issuer decision. Issuer grants the controller allowance for the token-selected payment currency when needed and signs PlatformController.redeem(investor, token, paymentToken, amount); canonical confirmation/indexing records the atomic burn and payout.",
       "item": [
         {
           "name": "Investor - Create Redemption",

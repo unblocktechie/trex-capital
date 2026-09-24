@@ -1,5 +1,6 @@
 const ethers = require('ethers');
 const { env } = require('../../core/config/env');
+const { listSupportedPaymentTokens } = require('../../config/payment-tokens');
 
 const ERC20_ABI = [
   'function decimals() view returns (uint8)',
@@ -264,7 +265,8 @@ class TokenPurchaseBlockchainService {
 
   async scanPaymentEvents(fromBlock, toBlock) {
     return this.withProvider(async (provider, chainId) => {
-      const logs = await provider.getLogs({ address: this.config.purchaseUsdtAddress, topics: [this.transferTopic], fromBlock, toBlock });
+      const addresses = listSupportedPaymentTokens(chainId, 'PURCHASE').map((token) => token.contractAddress);
+      const logs = await provider.getLogs({ address: addresses, topics: [this.transferTopic], fromBlock, toBlock });
       return logs.map((log) => {
         const parsed = this.usdtInterface.parseLog(log);
         return {

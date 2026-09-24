@@ -8,7 +8,7 @@ T-REX Capital Market is a three-part application composed of a React/Vite web cl
 
 The implemented product supports issuer and investor onboarding, organization and investor document workflows, compliant token configuration and deployment tracking, issuer/investor approval flows, identity claims and registry registration, marketplace discovery, token purchases/transfers/redemptions, portfolio and transaction views, and administrative review workflows.
 
-Blockchain transaction flows are configured for **Arc Testnet (chain ID `5042002`)**.
+Blockchain transaction flows are configured for **Sepolia Network**.
 
 ## Features
 
@@ -54,7 +54,7 @@ Blockchain transaction flows are configured for **Arc Testnet (chain ID `5042002
 - ONCHAINID integration through `@onchain-id/solidity`.
 - `TREXPlatformController` contract for priced token purchase/redemption settlement.
 - Custom country-restriction, maximum-balance, and maximum-investor compliance modules.
-- Arc Testnet RPC configuration in the frontend/backend runtime.
+- Sepolia RPC configuration in the frontend/backend runtime.
 - Backend receipt/state verification rather than trusting browser-submitted transaction metadata alone.
 - Checkpointed blockchain event indexing and recovery/reconciliation jobs.
 
@@ -100,24 +100,24 @@ flowchart LR
     User[Browser user] --> SPA[React / Vite SPA]
     SPA --> Privy[Privy email OTP + embedded wallet]
     SPA --> API[Express API]
-    SPA --> Arc[Arc Testnet contracts]
+    SPA --> Sepolia[Sepolia Testnet contracts]
 
     API --> MySQL[(MySQL)]
     API --> Files[(Local document/image storage)]
     API --> SMTP[SMTP server]
     API --> Privy
-    API --> Arc
+    API --> Sepolia
 
-    Jobs[In-process indexers & reconcilers] --> Arc
+    Jobs[In-process indexers & reconcilers] --> Sepolia
     Jobs --> MySQL
 
     Contracts[Hardhat / Solidity workspace] --> ERC3643[ERC-3643 + ONCHAINID]
     Contracts --> Controller[TREXPlatformController]
     Contracts --> Modules[Compliance modules]
 
-    ERC3643 --> Arc
-    Controller --> Arc
-    Modules --> Arc
+    ERC3643 --> Sepolia
+    Controller --> Sepolia
+    Modules --> Sepolia
 ```
 
 ### Major backend layers
@@ -204,7 +204,7 @@ To run the complete application locally, use the strictest runtime requirement d
 - **MySQL 8+**.
 - **Privy application credentials** for the browser and backend SDKs.
 - **SMTP server credentials**. The backend validates SMTP settings at startup.
-- **Arc Testnet RPC access** and the public contract addresses used by the application.
+- **Sepolia Testnet RPC access** and the public contract addresses used by the application.
 - A funded wallet/environment appropriate to any on-chain operation you intend to execute.
 
 ## Installation
@@ -343,11 +343,11 @@ RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX=100
 AUTH_RATE_LIMIT_MAX=10
 
-BLOCKCHAIN_RPC_URL=<arc-testnet-rpc-url>
+BLOCKCHAIN_RPC_URL=<sepolia-testnet-rpc-url>
 BLOCKCHAIN_FALLBACK_RPC_URLS=
 BLOCKCHAIN_CHAIN_ID=5042002
 SUPPORTED_CHAIN_IDS=5042002
-BLOCKCHAIN_NETWORK_NAME=arc-testnet
+BLOCKCHAIN_NETWORK_NAME=sepolia-testnet
 IDENTITY_FACTORY_ADDRESS=<public-contract-address>
 TREX_FACTORY_ADDRESS=<public-contract-address>
 PLATFORM_CONTROLLER_ADDRESS=<public-contract-address>
@@ -392,9 +392,9 @@ VITE_PREVIEW_PORT=4173
 VITE_PRIVY_APP_ID=<public-privy-app-id>
 VITE_PRIVY_CLIENT_ID=<optional-public-privy-client-id>
 
-VITE_WEB3_DEFAULT_CHAIN=arc-testnet
-VITE_WEB3_ENABLED_CHAINS=arc-testnet
-VITE_ARC_TESTNET_RPC_URL=<arc-testnet-rpc-url>
+VITE_WEB3_DEFAULT_CHAIN=sepolia-testnet
+VITE_WEB3_ENABLED_CHAINS=sepolia-testnet
+VITE_ARC_TESTNET_RPC_URL=<sepolia-testnet-rpc-url>
 
 VITE_TREX_GATEWAY_ADDRESS=<public-contract-address>
 VITE_TREX_PLATFORM_WALLET_ADDRESS=<public-wallet-address>
@@ -825,12 +825,11 @@ The current application runtime is configured for:
 
 | Property | Value |
 | --- | --- |
-| Network | Arc Testnet |
-| Chain ID | `5042002` |
+| Network | Sepolia Network |
 | Native asset label in frontend config | USD Coin (`USDC`) |
 | Block confirmations default | `1` |
 
-Transaction-critical application flows use Arc Testnet.
+Transaction-critical application flows use Sepolia Network.
 
 ### ERC-3643 / ONCHAINID
 
@@ -1084,7 +1083,7 @@ Verify that:
 
 ### Blockchain indexer or reconciliation does not advance
 
-Check the Arc RPC URL, contract addresses, chain ID, start blocks, confirmation settings, relevant `generalSettings`, and backend logs. Incorrect start blocks or addresses can prevent event discovery without causing a frontend build error.
+Check the Sepolia RPC URL, contract addresses, chain ID, start blocks, confirmation settings, relevant `generalSettings`, and backend logs. Incorrect start blocks or addresses can prevent event discovery without causing a frontend build error.
 
 ### Token image upload is rejected
 

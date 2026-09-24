@@ -133,7 +133,7 @@ const requiredUid = (value, label) => {
 const requiredSignature = (value) => {
   const normalized = String(value || '').trim();
   if (!/^0x[0-9a-fA-F]+$/.test(normalized) || normalized.length < 132) {
-    throw new Error('Wallet signature is invalid.');
+    throw new Error('The secure confirmation is invalid.');
   }
   return normalized;
 };
@@ -227,20 +227,20 @@ const TRANSACTION_STATUSES = new Set(['SUBMITTED', 'CONFIRMED', 'FAILED']);
 
 const requiredTransactionHash = (value) => {
   const normalized = String(value || '').trim();
-  if (!/^0x[a-fA-F0-9]{64}$/.test(normalized)) throw new Error('Transaction hash is invalid.');
+  if (!/^0x[a-fA-F0-9]{64}$/.test(normalized)) throw new Error('Confirmation ID is invalid.');
   return normalized;
 };
 
 const requiredTransactionAction = (value) => {
   const normalized = String(value || '').trim().toUpperCase();
-  if (!TRANSACTION_ACTIONS.has(normalized)) throw new Error('Transaction action is invalid.');
+  if (!TRANSACTION_ACTIONS.has(normalized)) throw new Error('The requested action is invalid.');
   return normalized;
 };
 
 const cleanTransactionStatus = (value) => {
   const normalized = String(value || '').trim().toUpperCase();
   if (!normalized || normalized === 'ALL') return '';
-  if (!TRANSACTION_STATUSES.has(normalized)) throw new Error('Transaction status is invalid.');
+  if (!TRANSACTION_STATUSES.has(normalized)) throw new Error('Activity status is invalid.');
   return normalized;
 };
 
@@ -305,7 +305,7 @@ export const investmentApi = Object.freeze({
 
   async listTransactions({ page = 1, limit = 20, tokenUid = '', type = '', status = '', walletAddress = '', txHash = '', fromDate = '', toDate = '', search = '', signal } = {}) {
     const normalizedType = String(type || '').trim().toUpperCase();
-    if (normalizedType && normalizedType !== 'ALL' && !TRANSACTION_ACTIONS.has(normalizedType)) throw new Error('Transaction type is invalid.');
+    if (normalizedType && normalizedType !== 'ALL' && !TRANSACTION_ACTIONS.has(normalizedType)) throw new Error('Activity type is invalid.');
     const normalizedStatus = cleanTransactionStatus(status);
     const response = await apiClient.get(INVESTMENT_ENDPOINTS.transactions, {
       params: {
@@ -742,8 +742,8 @@ export const investmentApi = Object.freeze({
     if (rejectReasonType === 'DOC_REJECTED' && !rejectedClaims.length) {
       throw new Error('Select at least one requested document claim.');
     }
-    if (rejectReasonType === 'OTHER' && !rejectReason) {
-      throw new Error('Add a reason for this rejection.');
+    if (!rejectReason) {
+      throw new Error('Enter a rejection note before rejecting this investment application.');
     }
 
     return apiClient
@@ -787,7 +787,7 @@ export const investmentApi = Object.freeze({
           requiredUid(interestUid, 'Interest identifier'),
           requiredUid(registryOperationId, 'Registry operation identifier'),
         ),
-        { txHash: requiredUid(txHash, 'Transaction hash') },
+        { txHash: requiredUid(txHash, 'Confirmation ID') },
         { skipGlobalLoader: true },
       )
       .then(unwrapRegistryRegistrationResponse),

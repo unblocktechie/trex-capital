@@ -4,6 +4,7 @@ const { env } = require('../core/config/env');
 const { withTransaction } = require('../database/connection');
 const { PurchaseBlockchainError } = require('./blockchain/token-purchase-blockchain.service');
 const { presentToken } = require('./investment.service');
+const { LEGACY_PAYMENT_TOKEN_ADDRESS } = require('../config/payment-tokens');
 
 const ceilDiv = (value, divisor) => (value + divisor - 1n) / divisor;
 
@@ -88,7 +89,8 @@ class TokenPurchaseService {
     if (context.interestStatus !== 'registered') throw new ApiError(409, 'Investor must be registered for this token before purchasing.', undefined, 'INVESTOR_NOT_REGISTERED');
     if (context.tokenStatus !== 'deployed' || !context.tokenActive) throw new ApiError(409, 'Token is not available for purchase.', undefined, 'TOKEN_NOT_AVAILABLE');
     if (context.investorStatus !== 'submitted' || !context.investorActive || context.investorDeleted) throw new ApiError(409, 'Investor profile is not active.', undefined, 'INVESTOR_NOT_ACTIVE');
-    const addresses = [context.tokenAddress, context.treasuryWalletAddress, context.investorWalletAddress, this.config.purchaseUsdtAddress];
+    context.paymentTokenAddress = context.paymentTokenAddress || LEGACY_PAYMENT_TOKEN_ADDRESS;
+    const addresses = [context.tokenAddress, context.treasuryWalletAddress, context.investorWalletAddress, context.paymentTokenAddress];
     if (!addresses.every(ethers.isAddress)) throw new ApiError(409, 'Purchase wallet or contract configuration is incomplete.', undefined, 'PURCHASE_CONFIGURATION_INVALID');
   }
 
@@ -130,7 +132,7 @@ class TokenPurchaseService {
     let preparation;
     try {
       preparation = await this.blockchain.prepare({
-        usdtContractAddress: this.config.purchaseUsdtAddress,
+        usdtContractAddress: context.paymentTokenAddress,
         tokenAddress: context.tokenAddress,
         investorWalletAddress: context.investorWalletAddress,
       });
@@ -154,7 +156,7 @@ class TokenPurchaseService {
     try {
       const created = await this.repository.create({
         ...context, ...amounts, idempotencyKey: input.idempotencyKey,
-        chainId: preparation.chainId, usdtContractAddress: ethers.getAddress(this.config.purchaseUsdtAddress),
+        chainId: preparation.chainId, usdtContractAddress: ethers.getAddress(context.paymentTokenAddress),
         tokenAddress: ethers.getAddress(context.tokenAddress), investorWalletAddress: ethers.getAddress(context.investorWalletAddress),
         treasuryWalletAddress: ethers.getAddress(context.treasuryWalletAddress), platformWalletAddress: preparation.platformWalletAddress,
         usdtDecimals: preparation.usdtDecimals, tokenDecimals: Number(context.tokenDecimals),

@@ -315,6 +315,7 @@ CREATE TABLE IF NOT EXISTS `tokenMaster` (
   `initialTokenPrice` DECIMAL(36,18) NULL,
   `currentTokenPrice` DECIMAL(36,18) NULL,
   `treasuryWalletAddress` VARCHAR(42) NULL,
+  `paymentTokenAddress` VARCHAR(42) NULL,
   `tokenDescription` VARCHAR(2000) NULL,
   `imageOriginalFileName` VARCHAR(255) NULL,
   `imageStorageKey` VARCHAR(255) NULL,
@@ -356,6 +357,7 @@ CREATE TABLE IF NOT EXISTS `tokenMaster` (
   UNIQUE KEY `ukTokenMasterTokenAddress` (`tokenAddress`),
   UNIQUE KEY `ukTokenMasterDeployTxHash` (`deployTxHash`),
   KEY `idxTokenMasterUserUid` (`userUid`),
+  KEY `idxTokenPaymentToken` (`paymentTokenAddress`, `status`, `isDeleted`),
   KEY `idxTokenMasterStatus` (`status`, `isActive`, `isDeleted`)
 ) ENGINE=InnoDB;
 

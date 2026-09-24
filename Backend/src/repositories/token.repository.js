@@ -4,7 +4,7 @@ const { identifier } = require('./base.repository');
 
 const tokenFields = [
   'tokenName', 'tokenSymbol', 'decimals', 'initialTokenPrice', 'currentTokenPrice',
-  'treasuryWalletAddress', 'tokenDescription',
+  'treasuryWalletAddress', 'paymentTokenAddress', 'tokenDescription',
   'imageOriginalFileName', 'imageStorageKey', 'imageMimeType', 'imageFileSize', 'imageWidth', 'imageHeight',
   'imageChecksumSha256', 'imageVirusScanStatus', 'trustedClaimIssuerWalletAddress', 'maxInvestors',
   'maxBalancePerInvestor', 'countryRestrictionMode', 'tokenAgentWalletAddress', 'identityManagerWalletAddress',

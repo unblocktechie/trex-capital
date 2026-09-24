@@ -34,7 +34,7 @@ export function Sidebar() {
   const roleLabel = formatRole(user?.role);
   const isIssuer = user?.role === ROLES.issuer;
   const workspaceName = isIssuer
-    ? user?.company || 'Your organization'
+    ? user?.company || user?.name || 'Issuer account'
     : user?.name || `${roleLabel} account`;
 
   useEffect(() => {

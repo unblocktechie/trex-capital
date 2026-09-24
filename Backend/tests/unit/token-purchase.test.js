@@ -6,12 +6,14 @@ const { PurchaseBlockchainError } = require('../../src/services/blockchain/token
 const investor = { userUid: 'user-1', roleName: 'Investor' };
 const address = (char) => `0x${char.repeat(40)}`;
 const TX = `0x${'a'.repeat(64)}`;
+const PAYMENT_TOKEN = '0x86B14D29A59b745bF08c42661322d13142d5eb49';
 
 const context = {
   interestUid: 'interest-1', interestStatus: 'registered', organizationUid: 'org-1', investorUid: 'investor-1',
   investorUserUid: investor.userUid, investorWalletAddress: address('1'), investorStatus: 'submitted',
   investorActive: true, investorDeleted: false, tokenUid: 'token-1', tokenAddress: address('2'),
   treasuryWalletAddress: address('3'), tokenDecimals: 18, tokenPrice: '1.5', maxBalancePerInvestor: '1000',
+  paymentTokenAddress: PAYMENT_TOKEN,
   tokenStatus: 'deployed', tokenActive: true,
 };
 
@@ -73,7 +75,7 @@ const make = (over = {}) => {
     repository, blockchain, mintService,
     investmentRepository: { listCountryRestrictionsForTokens: async () => over.restrictions || [] },
     tokenRepository: { listClaimTopics: async () => over.claimTopics || [] },
-    config: { purchaseUsdtAddress: address('5'), purchasePaymentConfirmations: 1 },
+    config: { purchasePaymentConfirmations: 1 },
     transactionRunner: (work) => work({}),
   }) };
 };

@@ -29,7 +29,7 @@ class BlockchainTransactionRepository {
   async listIndexedTokens(executor) {
     return execute(
       `SELECT t.tokenUid,t.organizationUid,t.tokenAddress,t.tokenSymbol,t.decimals,t.deployedAtBlock,
-              t.tokenAgentWalletAddress,
+              t.tokenAgentWalletAddress,t.paymentTokenAddress,
               o.walletAddress AS issuerWalletAddress
        FROM tokenMaster t
        INNER JOIN organizationMaster o ON o.organizationUid=t.organizationUid AND o.isDeleted=0
@@ -123,9 +123,11 @@ class BlockchainTransactionRepository {
         (transactionUid,chainId,tokenUid,organizationUid,tokenAddress,controllerAddress,
          transactionHash,blockNumber,blockHash,transactionIndex,logIndex,gasUsed,effectiveGasPrice,type,executionType,initiatedByUserUid,
          initiatedByWallet,fromWallet,toWallet,tokenAmountRaw,tokenAmountFormatted,
-         usdtAmountRaw,usdtAmountFormatted,tokenSymbol,status,confirmationCount,blockTimestamp,
+         paymentTokenAddress,paymentTokenName,paymentTokenSymbol,paymentTokenDecimals,
+         paymentAmountRaw,paymentAmountFormatted,usdtAmountRaw,usdtAmountFormatted,
+         tokenSymbol,status,confirmationCount,blockTimestamp,
          confirmedAt,errorCode,errorMessage,isCanonical)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE
          tokenUid=VALUES(tokenUid),organizationUid=VALUES(organizationUid),tokenAddress=VALUES(tokenAddress),
          controllerAddress=VALUES(controllerAddress),blockNumber=VALUES(blockNumber),blockHash=VALUES(blockHash),
@@ -134,6 +136,9 @@ class BlockchainTransactionRepository {
          initiatedByUserUid=COALESCE(VALUES(initiatedByUserUid),initiatedByUserUid),
          initiatedByWallet=VALUES(initiatedByWallet),fromWallet=VALUES(fromWallet),toWallet=VALUES(toWallet),
          tokenAmountRaw=VALUES(tokenAmountRaw),tokenAmountFormatted=VALUES(tokenAmountFormatted),
+         paymentTokenAddress=VALUES(paymentTokenAddress),paymentTokenName=VALUES(paymentTokenName),
+         paymentTokenSymbol=VALUES(paymentTokenSymbol),paymentTokenDecimals=VALUES(paymentTokenDecimals),
+         paymentAmountRaw=VALUES(paymentAmountRaw),paymentAmountFormatted=VALUES(paymentAmountFormatted),
          usdtAmountRaw=VALUES(usdtAmountRaw),usdtAmountFormatted=VALUES(usdtAmountFormatted),
          tokenSymbol=VALUES(tokenSymbol),status=VALUES(status),confirmationCount=VALUES(confirmationCount),
          blockTimestamp=VALUES(blockTimestamp),confirmedAt=VALUES(confirmedAt),errorCode=VALUES(errorCode),
@@ -146,6 +151,10 @@ class BlockchainTransactionRepository {
         record.gasUsed || null, record.effectiveGasPrice || null, record.type, record.executionType || 'DIRECT',
         record.initiatedByUserUid || null, record.initiatedByWallet, record.fromWallet || null,
         record.toWallet || null, record.tokenAmountRaw || null, record.tokenAmountFormatted || null,
+        record.paymentTokenAddress || null, record.paymentTokenName || null,
+        record.paymentTokenSymbol || null, record.paymentTokenDecimals ?? null,
+        record.paymentAmountRaw || record.usdtAmountRaw || null,
+        record.paymentAmountFormatted || record.usdtAmountFormatted || null,
         record.usdtAmountRaw || null, record.usdtAmountFormatted || null, record.tokenSymbol || null,
         record.status, record.confirmationCount || 0, record.blockTimestamp || null,
         record.confirmedAt || null, record.errorCode || null, record.errorMessage || null,
@@ -157,6 +166,9 @@ class BlockchainTransactionRepository {
 
   async synchronizeLegacy(record, executor) {
     if (record.status !== 'CONFIRMED') return;
+    const paymentPredicate = record.paymentTokenAddress
+      ? ' AND LOWER(usdtContractAddress)=LOWER(?)' : '';
+    const paymentParams = record.paymentTokenAddress ? [record.paymentTokenAddress] : [];
     const common = [
       record.transactionHash, record.blockNumber, record.blockHash, record.transactionIndex,
       record.logIndex, record.confirmedAt, record.tokenUid, record.initiatedByWallet,
@@ -170,10 +182,12 @@ class BlockchainTransactionRepository {
            mintConfirmedAt=?,syncStatus='IDLE',syncCompletedAt=UTC_TIMESTAMP(3),nextSyncAt=NULL,
            errorStage=NULL,errorCode=NULL,errorMessage=NULL,updatedAt=UTC_TIMESTAMP(3)
          WHERE tokenUid=? AND LOWER(investorWalletAddress)=LOWER(?) AND tokenAmountRaw=?
+           ${paymentPredicate}
            AND status IN ('PENDING_PAYMENT','PAYMENT_CONFIRMED','MINT_SUBMITTED') AND isDeleted=0`,
         [
           ...common.slice(0, 6), record.transactionHash, record.blockNumber, record.blockHash,
           record.transactionIndex, record.logIndex, record.confirmedAt, ...common.slice(6),
+          ...paymentParams,
         ], executor,
       );
     } else if (record.type === 'TRANSFER') {
@@ -199,19 +213,21 @@ class BlockchainTransactionRepository {
            syncStatus='IDLE',syncCompletedAt=UTC_TIMESTAMP(3),nextSyncAt=NULL,errorStage=NULL,
            errorCode=NULL,errorMessage=NULL,updatedAt=UTC_TIMESTAMP(3)
          WHERE tokenUid=? AND LOWER(investorWalletAddress)=LOWER(?) AND tokenAmountRaw=?
+           ${paymentPredicate}
            AND status NOT IN ('COMPLETED','ISSUER_REJECTED','CANCELLED','EXPIRED') AND isDeleted=0`,
         [
           ...common.slice(0, 6), record.transactionHash, record.blockNumber, record.blockHash,
           record.transactionIndex, record.logIndex, record.confirmedAt,
-          record.tokenUid, record.toWallet, record.tokenAmountRaw,
+          record.tokenUid, record.toWallet, record.tokenAmountRaw, ...paymentParams,
         ], executor,
       );
       if (result.affectedRows > 0) {
         const rows = await execute(
           `SELECT redemptionUid FROM tokenRedemption WHERE tokenUid=?
-           AND LOWER(investorWalletAddress)=LOWER(?) AND tokenAmountRaw=? AND status='COMPLETED'
+           AND LOWER(investorWalletAddress)=LOWER(?) AND tokenAmountRaw=?
+           ${paymentPredicate} AND status='COMPLETED'
            ORDER BY updatedAt DESC LIMIT 1`,
-          [record.tokenUid, record.toWallet, record.tokenAmountRaw], executor,
+          [record.tokenUid, record.toWallet, record.tokenAmountRaw, ...paymentParams], executor,
         );
         if (rows[0]) {
           await execute(

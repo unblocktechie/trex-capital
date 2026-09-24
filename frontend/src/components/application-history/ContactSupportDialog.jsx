@@ -23,9 +23,9 @@ const SUBJECT_OPTIONS = [
     description: 'Help with required investor verification or wallet signing.',
   },
   {
-    value: 'Transaction Issue',
-    label: 'Transaction Issue',
-    description: 'Pending, failed, or unexpected blockchain transactions.',
+    value: 'Investment Confirmation Issue',
+    label: 'Investment Confirmation Issue',
+    description: 'Pending, failed, or unexpected investment confirmations.',
   },
   {
     value: 'Other',
@@ -196,7 +196,7 @@ export function ContactSupportDialog({ open, onClose, context = {} }) {
             <span className="support-contact-context__icon"><Info size={16} /></span>
             <span className="support-contact-context__copy">
               <strong>Application details included automatically</strong>
-              <small>No need to re-enter your wallet, token, identity, or application information.</small>
+              <small>No need to re-enter your secure account, investment, identity, or application information.</small>
             </span>
             <ChevronDown size={17} className="support-contact-context__chevron" aria-hidden="true" />
           </button>

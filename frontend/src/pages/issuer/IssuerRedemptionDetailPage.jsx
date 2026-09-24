@@ -20,6 +20,7 @@ import { CompactAddress } from '@/components/common/CompactAddress';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
+import { WalletFundingDialog } from '@/components/wallet/WalletFundingDialog';
 import { ROUTES } from '@/config/routes';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useWalletConnection } from '@/hooks/useWalletConnection';
@@ -37,6 +38,7 @@ import {
 } from '@/services/investor/observedWalletTransactionStore';
 import { formatDate } from '@/utils/date';
 import { getApiFieldErrors, getErrorMessage } from '@/utils/error';
+import { getWalletFundingIssue } from '@/utils/walletFunding';
 import { transactionExplorerName, transactionExplorerUrl } from '@/utils/blockExplorer';
 import {
   cleanRedemptionText,
@@ -96,6 +98,7 @@ export default function IssuerRedemptionDetailPage() {
   const [funding, setFunding] = useState(null);
   const [fundingLoading, setFundingLoading] = useState(false);
   const [fundingError, setFundingError] = useState('');
+  const [walletFundingIssue, setWalletFundingIssue] = useState(null);
   const [submittedRedemptionHash, setSubmittedRedemptionHash] = useState('');
   const mounted = useRef(true);
 
@@ -214,6 +217,29 @@ export default function IssuerRedemptionDetailPage() {
   const correctChain = Number.isSafeInteger(chainId) && wallet.chainId === chainId;
   const canSwitchChain = Number.isSafeInteger(chainId) && wallet.supportedChains.some((chain) => chain.id === chainId);
   const tokenUid = redemptionTokenUid(redemption);
+  const configuredRedemptionChain = wallet.supportedChains.find((chain) => chain.id === chainId) || wallet.requiredChain;
+  const resolveWalletFundingIssue = useCallback((walletError) => getWalletFundingIssue(walletError, {
+    walletAddress: wallet.address || expectedIssuerWallet,
+    networkName: funding?.chain?.name || configuredRedemptionChain?.name,
+    nativeSymbol: funding?.chain?.nativeCurrency?.symbol || configuredRedemptionChain?.nativeCurrency?.symbol,
+    nativeBalance: wallet.balance,
+    nativeBalanceLabel: wallet.balanceLabel,
+    paymentSymbol: funding?.paymentTokenSymbol,
+    requiredPayment: funding?.paymentAmountFormatted,
+    availablePayment: funding?.issuerBalanceFormatted,
+  }), [
+    configuredRedemptionChain?.name,
+    configuredRedemptionChain?.nativeCurrency?.symbol,
+    expectedIssuerWallet,
+    funding?.chain?.name,
+    funding?.chain?.nativeCurrency?.symbol,
+    funding?.issuerBalanceFormatted,
+    funding?.paymentAmountFormatted,
+    funding?.paymentTokenSymbol,
+    wallet.address,
+    wallet.balance,
+    wallet.balanceLabel,
+  ]);
 
   const markRedemptionConfirmedLocally = useCallback((txHash) => {
     const hash = cleanRedemptionText(txHash);
@@ -345,13 +371,13 @@ export default function IssuerRedemptionDetailPage() {
       if (fundingError) throw new Error(fundingError);
 
       const chainId = Number(redemption?.chainId);
-      if (!Number.isSafeInteger(chainId)) throw new Error('The redemption network is unavailable. Refresh and try again.');
+      if (!Number.isSafeInteger(chainId)) throw new Error('The secure account setup could not be verified. Refresh and try again.');
       if (!correctIssuerWallet) {
         throw new Error('Switch to the organization wallet that owns this token before continuing.');
       }
       if (!correctChain) {
         if (canSwitchChain) await wallet.switchChain(chainId);
-        else throw new Error('The required redemption network is not configured in this application.');
+        else throw new Error('The secure account setup needed for this redemption is unavailable. Contact support if this continues.');
       }
 
       const result = await approvePlatformRedemptionFunding({
@@ -363,22 +389,24 @@ export default function IssuerRedemptionDetailPage() {
         tokenAmount: cleanRedemptionText(redemption?.tokenAmount || redemption?.amount),
         onStep: ({ stage }) => {
           if (stage === 'approval-signature') {
-            toast.info('Approve USDT spending', { description: 'This is a separate one-time approval. It does not redeem tokens or send a redemption payment.' });
+            toast.info('Allow USDT payments', { description: 'This is a separate one-time permission. It does not redeem units or send a redemption payment by itself.' });
           }
         },
       });
       setFunding(result.funding);
       if (result.alreadyApproved) {
-        toast.success('Payment setup is ready', { description: 'You can execute the redemption once the organization wallet has enough USDT.' });
+        toast.success('Payment setup is ready', { description: 'You can confirm the redemption once the organization secure account has enough USDT.' });
       } else {
         toast.success('Payment setup complete', { description: 'No further setup is needed for future redemptions while this permission remains available.' });
       }
       await loadDetail({ quiet: true });
     } catch (fundingApprovalError) {
       if (isPlatformWalletRejection(fundingApprovalError)) {
-        toast.info('USDT approval cancelled', { description: 'No changes were made. You can complete the one-time approval later.' });
+        toast.info('Payment permission cancelled', { description: 'No changes were made. You can complete the one-time approval later.' });
       } else {
-        toast.error(getErrorMessage(fundingApprovalError, 'Unable to approve USDT spending.'));
+        const fundingIssue = resolveWalletFundingIssue(fundingApprovalError);
+        if (fundingIssue) setWalletFundingIssue(fundingIssue);
+        toast.error(getErrorMessage(fundingApprovalError, 'Unable to allow payments.'));
       }
     } finally {
       setAction('');
@@ -394,20 +422,33 @@ export default function IssuerRedemptionDetailPage() {
       }
       if (fundingError) throw new Error(fundingError);
       if (!funding?.issuerAllowanceSufficient) {
-        throw new Error('Approve USDT spending before executing this redemption.');
+        throw new Error('Allow USDT payments before executing this redemption.');
       }
       if (!funding?.issuerBalanceSufficient) {
-        throw new Error(`The organization wallet does not have enough USDT for this redemption. Required: ${funding?.paymentAmountFormatted || 'the quoted amount'} USDT.`);
+        const paymentSymbol = funding?.paymentTokenSymbol || 'payment token';
+        const insufficientBalanceError = new Error(`The organization wallet does not have enough ${paymentSymbol} for this redemption.`);
+        insufficientBalanceError.code = 'INSUFFICIENT_ISSUER_BALANCE';
+        insufficientBalanceError.fundingIssue = {
+          type: 'payment',
+          paymentInsufficient: true,
+          paymentSymbol,
+          requiredPayment: funding?.paymentAmountFormatted,
+          availablePayment: funding?.issuerBalanceFormatted,
+          walletAddress: wallet.address || expectedIssuerWallet,
+          networkName: funding?.chain?.name || configuredRedemptionChain?.name,
+          nativeSymbol: funding?.chain?.nativeCurrency?.symbol || configuredRedemptionChain?.nativeCurrency?.symbol,
+        };
+        throw insufficientBalanceError;
       }
       if (!Number.isSafeInteger(chainId)) {
-        throw new Error('The redemption network is unavailable. Refresh and try again.');
+        throw new Error('The secure account setup could not be verified. Refresh and try again.');
       }
       if (!correctIssuerWallet) {
         throw new Error('Switch to the organization wallet that owns this token before continuing.');
       }
       if (!correctChain) {
         if (canSwitchChain) await wallet.switchChain(chainId);
-        else throw new Error('The required redemption network is not configured in this application.');
+        else throw new Error('The secure account setup needed for this redemption is unavailable. Contact support if this continues.');
       }
 
       const result = await submitPlatformRedemption({
@@ -427,7 +468,7 @@ export default function IssuerRedemptionDetailPage() {
 
       const txHash = cleanRedemptionText(result?.txHash);
       if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
-        throw new Error('The redemption transaction ID was not returned. Check the organization wallet activity before trying again.');
+        throw new Error('The redemption confirmation ID was not returned. Check the activity record before trying again.');
       }
 
       setSubmittedRedemptionHash(txHash);
@@ -446,10 +487,10 @@ export default function IssuerRedemptionDetailPage() {
         transactionHash: txHash,
         paymentTxHash: txHash,
       } : current);
-      toast.success('Redemption submitted', { description: 'Waiting for blockchain confirmation. Do not submit another redemption transaction.' });
+      toast.success('Redemption submitted', { description: 'Your redemption is being confirmed. Do not submit another redemption request.' });
 
       await waitForPlatformTransactionReceipt({ txHash, chainId });
-      toast.success('Redemption confirmed on-chain', { description: 'The investor tokens were redeemed and USDT settlement completed in the confirmed transaction.' });
+      toast.success('Redemption confirmed', { description: 'The investor units were redeemed and the USDT payment was completed.' });
       markRedemptionConfirmedLocally(txHash);
 
       if (tokenUid) {
@@ -463,10 +504,10 @@ export default function IssuerRedemptionDetailPage() {
           if (cleanRedemptionText(synced?.status).toUpperCase() === 'CONFIRMED') {
             clearObservedWalletTransaction({ chainId, txHash, expectedAction: 'REDEMPTION' });
           } else {
-            toast.info('History is syncing', { description: 'The redemption is confirmed on-chain. Issuer and investor history will update as the indexer finishes syncing.' });
+            toast.info('History is syncing', { description: 'The redemption is confirmed. Issuer and investor history will update shortly.' });
           }
         } catch {
-          toast.info('History is syncing', { description: 'The redemption is confirmed on-chain. Issuer and investor history will update as the indexer finishes syncing.' });
+          toast.info('History is syncing', { description: 'The redemption is confirmed. Issuer and investor history will update shortly.' });
         }
       }
     } catch (redeemError) {
@@ -485,6 +526,8 @@ export default function IssuerRedemptionDetailPage() {
         toast.error('Redemption failed', { description: 'The transaction was confirmed but reverted. The redemption remains incomplete and can be retried after the issue is resolved.' });
         await loadDetail({ quiet: true }).catch(() => null);
       } else {
+        const fundingIssue = resolveWalletFundingIssue(redeemError);
+        if (fundingIssue) setWalletFundingIssue(fundingIssue);
         toast.error(getErrorMessage(redeemError, 'Unable to execute this redemption.'));
         await getPlatformRedemptionFunding({
           chainId,
@@ -555,15 +598,15 @@ export default function IssuerRedemptionDetailPage() {
     }
 
     if (status === 'COMPLETED') {
-      return `Redemption completed. Transaction IDs are shown in the status section and can be opened in ${explorerName}.`;
+      return `Redemption completed. Confirmation IDs are available under View details and can be opened in ${explorerName}.`;
     }
 
     if (redemptionComplete) {
-      return 'The redemption transaction is confirmed and the redemption is complete.';
+      return 'The redemption is confirmed and complete.';
     }
 
     if (redemptionSubmitted) {
-      return `${baseMessage} The organization wallet submitted the Redeem transaction and it is being confirmed.`;
+      return `${baseMessage} The redemption was submitted from the organization secure account and is being confirmed.`;
     }
 
     if (paymentReady) {
@@ -571,7 +614,7 @@ export default function IssuerRedemptionDetailPage() {
     }
 
     if (issuerAllowanceReady && !issuerBalanceReady) {
-      return 'The organization wallet needs enough USDT before you can execute this redemption.';
+      return 'The organization secure account needs enough USDT before you can confirm this redemption.';
     }
 
     return baseMessage;
@@ -589,7 +632,7 @@ export default function IssuerRedemptionDetailPage() {
       </header>
 
       {error ? <div className="issuer-redemption-inline-alert is-warning"><AlertTriangle size={18} /><span>{error}</span></div> : null}
-      {status === 'MANUAL_REVIEW' ? <div className="issuer-redemption-inline-alert is-danger"><AlertTriangle size={18} /><span>This redemption requires manual review. Do not start another settlement transaction. Contact your support team.</span></div> : null}
+      {status === 'MANUAL_REVIEW' ? <div className="issuer-redemption-inline-alert is-danger"><AlertTriangle size={18} /><span>This redemption requires manual review. Do not submit another redemption. Contact your support team.</span></div> : null}
 
       <div className="issuer-redemption-detail-grid">
         <div className="issuer-redemption-detail-main">
@@ -600,7 +643,7 @@ export default function IssuerRedemptionDetailPage() {
               <div><span>Investor name</span><strong>{issuerRedemptionInvestorLabel(redemption)}</strong></div>
               <div><span>Redeem amount</span><strong>{issuerRedemptionAmountLabel(redemption)}</strong></div>
               <div><span>Requested</span><strong>{created ? formatDate(created, 'MMM DD, YYYY · hh:mm A') : '—'}</strong></div>
-              <div><span>Investor wallet</span>{redemption?.investorWalletAddress ? <CompactAddress value={redemption.investorWalletAddress} label="Investor wallet" /> : <strong>—</strong>}</div>
+              <div><span>Investor secure account</span><strong>{redemption?.investorWalletAddress ? 'Linked to investor profile' : 'Not available'}</strong></div>
             </div>
           </Card>
 
@@ -666,9 +709,9 @@ export default function IssuerRedemptionDetailPage() {
                       onClick={handleFundingApproval}
                       icon={CreditCard}
                     >
-                      Approve USDT
+                      Allow payments
                     </Button>
-                    <small className="issuer-redemption-action-note">This is required only for the first redemption setup. It does not complete the investor’s redemption.</small>
+                    <small className="issuer-redemption-action-note">This one-time permission lets the organization make redemption payments using USDT. You will still review and confirm each redemption before funds are used.</small>
                   </>
                 ) : null}
 
@@ -678,7 +721,7 @@ export default function IssuerRedemptionDetailPage() {
                       <div><span>USDT needed</span><strong>{paymentAmount !== '—' ? `${paymentAmount} USDT` : 'Unavailable'}</strong></div>
                       <div><span>Organization wallet</span>{expectedIssuerWallet ? <CompactAddress value={expectedIssuerWallet} label="Organization wallet" /> : <strong>—</strong>}</div>
                     </div>
-                    <div className="issuer-redemption-inline-alert is-danger"><AlertTriangle size={17} /><span>Add enough USDT to the organization wallet for this redemption, then refresh. Redeem becomes available once the balance is sufficient.</span></div>
+                    <div className="issuer-redemption-inline-alert is-danger"><AlertTriangle size={17} /><span>Add enough USDT to the organization secure account for this redemption, then refresh. Confirmation becomes available once the balance is sufficient.</span></div>
                   </>
                 ) : null}
 
@@ -696,9 +739,9 @@ export default function IssuerRedemptionDetailPage() {
                       onClick={handleExecuteRedemption}
                       icon={RotateCcw}
                     >
-                      {submittedRedemptionHash ? 'Redemption submitted' : 'Redeem'}
+                      {submittedRedemptionHash ? 'Redemption submitted' : 'Review and confirm redemption'}
                     </Button>
-                    <small className="issuer-redemption-action-note">The smart contract burns the investor tokens and transfers USDT directly from the organization wallet to the investor. No manual USDT transfer is required.</small>
+                    <small className="issuer-redemption-action-note">Confirming this redemption will remove the redeemed asset units from the investor and send the stated USDT amount from the organization secure account to the investor. Review the amount before you confirm.</small>
                   </>
                 ) : null}
               </>
@@ -784,6 +827,11 @@ export default function IssuerRedemptionDetailPage() {
           ) : null}
         </div>
       </Modal>
+
+      <WalletFundingDialog
+        issue={walletFundingIssue}
+        onClose={() => setWalletFundingIssue(null)}
+      />
     </div>
   );
 }

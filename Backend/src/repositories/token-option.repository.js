@@ -1,4 +1,6 @@
 const { execute } = require('../database/connection');
+const { listSupportedPaymentTokens } = require('../config/payment-tokens');
+const { env } = require('../core/config/env');
 
 class TokenOptionRepository {
   async listClaimTopics(executor) {
@@ -28,6 +30,7 @@ class TokenOptionRepository {
     return {
       decimals: [2, 6, 8, 18],
       countryRestrictionModes: ['allowlist', 'blocklist'],
+      paymentTokens: listSupportedPaymentTokens(env.blockchain.chainId),
       claimTopics: await this.listClaimTopics(),
     };
   }

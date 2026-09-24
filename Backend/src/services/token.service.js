@@ -4,6 +4,7 @@ const { env } = require('../core/config/env');
 const { ApiError } = require('../core/errors/api-error');
 const { withTransaction } = require('../database/connection');
 const { logger } = require('./common/log.service');
+const { LEGACY_PAYMENT_TOKEN_ADDRESS, findSupportedPaymentToken } = require('../config/payment-tokens');
 
 const requiredFields = (data, fields, section) => {
   const missing = fields.filter((field) => data[field] === undefined || data[field] === null || data[field] === '');
@@ -83,6 +84,19 @@ class TokenService {
     return ethers.getAddress(address);
   }
 
+  paymentToken(address, action = null) {
+    const token = findSupportedPaymentToken(address, this.config.chainId, action);
+    if (!token) {
+      throw new ApiError(
+        422,
+        'paymentTokenAddress is not an active supported payment token for this network.',
+        [{ field: 'paymentTokenAddress', message: 'Select a payment token returned by GET /api/v1/payment-tokens.' }],
+        'UNSUPPORTED_PAYMENT_TOKEN',
+      );
+    }
+    return token;
+  }
+
   assertIssuer(user) {
     if (user.roleName !== 'Issuer') {
       throw ApiError.forbidden('Token creation is available only to issuer accounts.');
@@ -111,10 +125,12 @@ class TokenService {
   // Reusable pre-deployment eligibility gate. Verifies every configuration field,
   // that issuer-managed governance wallets equal the approved organization wallet, that the
   // Token Agent stored when this token was created is valid, that at least
-  // one claim topic and one country restriction exist, and that the optimized image
+  // one claim topic exists, and that the optimized image
   // is still present. Returns the loaded claim topics and country restrictions.
   async assertTokenReadyForDeployment(token, organization) {
     requiredFields(token, DEPLOYMENT_REQUIRED_FIELDS, 'Token form');
+    this.paymentToken(token.paymentTokenAddress || LEGACY_PAYMENT_TOKEN_ADDRESS, 'PURCHASE');
+    this.paymentToken(token.paymentTokenAddress || LEGACY_PAYMENT_TOKEN_ADDRESS, 'REDEMPTION');
     for (const field of ORGANIZATION_WALLET_FIELDS) {
       if (String(token[field]).toLowerCase() !== organization.walletAddress.toLowerCase()) {
         throw ApiError.badRequest(`${field} must match the approved organization walletAddress.`);
@@ -128,7 +144,6 @@ class TokenService {
       this.repository.listCountryRestrictions(token.tokenUid),
     ]);
     if (!claimTopics.length) throw ApiError.badRequest('At least one active claim topic is required.');
-    if (!countryRestrictions.length) throw ApiError.badRequest('At least one active country restriction is required.');
     if (!fs.existsSync(this.imageService.resolve(token.imageStorageKey))) {
       throw ApiError.badRequest('The optimized token image is no longer available.');
     }
@@ -145,6 +160,9 @@ class TokenService {
     ]);
     return {
       ...token,
+      paymentToken: token.paymentTokenAddress
+        ? findSupportedPaymentToken(token.paymentTokenAddress, this.config.chainId)
+        : null,
       imageUrl: token.imageStorageKey ? '/api/v1/tokens/me/image' : null,
       claimTopics,
       countryRestrictions,
@@ -156,6 +174,7 @@ class TokenService {
     if (existing) return existing;
     return this.repository.createForOrganization(organization, user.userUid, {
       tokenAgentWalletAddress: this.platformControllerAddress(),
+      paymentTokenAddress: LEGACY_PAYMENT_TOKEN_ADDRESS,
       currentStep: 'tokenInformation',
       isDraft: true,
       status: 'draft',
@@ -182,6 +201,14 @@ class TokenService {
     let processedImage;
     if (imageFile) processedImage = await this.imageService.process(imageFile);
     const { isDraft, ...fields } = input;
+    if (fields.paymentTokenAddress) {
+      fields.paymentTokenAddress = ethers.getAddress(
+        this.paymentToken(fields.paymentTokenAddress, 'PURCHASE').contractAddress,
+      );
+    }
+    if (!fields.paymentTokenAddress && !current?.paymentTokenAddress) {
+      fields.paymentTokenAddress = LEGACY_PAYMENT_TOKEN_ADDRESS;
+    }
     const update = {
       ...fields,
       // Never accept the Token Agent from client state. New rows receive the current default,
@@ -271,9 +298,6 @@ class TokenService {
       requiredFields(input, [
         'maxInvestors', 'maxBalancePerInvestor', 'countryRestrictionMode',
       ], 'Token compliance rules');
-      if (!input.countryUids.length) {
-        throw ApiError.badRequest('At least one country restriction is required.');
-      }
     }
     const countries = await this.locationRepository.findCountries(input.countryUids);
     if (countries.length !== input.countryUids.length) {

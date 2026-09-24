@@ -333,13 +333,13 @@ does not send a separate USDT payment for each approved redemption.
 
 ```text
 1. Frontend verifies the business request is ISSUER_APPROVED
-2. Frontend reads issuer USDT allowance/balance on-chain
-3. Issuer signs Platform Controller redeem(investorWallet, token, tokenAmountRaw)
-4. Controller atomically burns tokens and transfers issuer USDT to investor
+2. Frontend reads issuer allowance/balance on the token-selected payment contract
+3. Issuer signs Platform Controller redeem(investorWallet, token, paymentToken, tokenAmountRaw)
+4. Controller atomically burns tokens and transfers issuer payment tokens to investor
 5. Frontend saves txHash locally
 6. POST /transactions/confirm using the owning Issuer JWT with expectedAction = REDEMPTION
-7. Backend verifies issuer ownership/sender, calldata investor/token/amount, receipt, TokensRedeemed,
-   burn, USDT settlement, quote, wallets, and confirmations
+7. Backend verifies issuer ownership/sender, calldata investor/token/paymentToken/amount, receipt,
+   TokensRedeemed, burn, settlement, quote, wallets, and confirmations
 8. Canonical status becomes CONFIRMED
 9. Matching redemption business record becomes COMPLETED
 10. Refresh redemption detail and canonical history

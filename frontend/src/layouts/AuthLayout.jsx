@@ -5,9 +5,9 @@ import { TrexLogo, TrexMark } from '@/components/branding/TrexLogo';
 import { appConfig } from '@/config/app.config';
 
 const points = [
-  ['Issuer ready', 'Build and manage compliant digital-security offerings.', FileCheck2],
-  ['Investor friendly', 'Guide investors through clear identity and eligibility checks.', UserRoundCheck],
-  ['Built-in safeguards', 'Apply investor eligibility and transfer rules automatically.', ShieldCheck],
+  ['For companies', 'Create and manage your investment offering.', FileCheck2],
+  ['For investors', 'Complete the checks you need before investing.', UserRoundCheck],
+  ['Built-in protection', 'Rules and safeguards are handled automatically.', ShieldCheck],
 ];
 
 export function AuthLayout() {
@@ -49,11 +49,10 @@ export function AuthLayout() {
             </span>
           </span>
           <h1 className="my-4 max-w-[610px] font-[var(--font-display)] text-[clamp(34px,4.3vw,66px)] leading-[1.06] tracking-[-0.055em] text-[var(--brand-panel-text)] min-[901px]:max-[1100px]:text-4xl">
-            Compliant digital securities, launched with confidence.
+            A simple, secure way to manage your digital investments
           </h1>
           <p className="mb-5 max-w-[560px] text-sm leading-6 text-[var(--brand-panel-soft)] min-[1200px]:text-base min-[1200px]:leading-7">
-            T-REX Capital Market gives issuers and investors one secure journey for token creation,
-            identity verification, eligibility and lifecycle management.
+            T-REX Capital Market helps companies launch investments and helps investors manage them with confidence.
           </p>
           <div className="grid gap-2.5">
             {points.map(([title, text, Icon]) => (

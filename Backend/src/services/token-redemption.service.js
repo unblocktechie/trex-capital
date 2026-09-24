@@ -4,6 +4,7 @@ const { env } = require('../core/config/env');
 const { withTransaction } = require('../database/connection');
 const { createUid } = require('../utils/token');
 const { RedemptionBlockchainError } = require('./blockchain/token-redemption-blockchain.service');
+const { LEGACY_PAYMENT_TOKEN_ADDRESS } = require('../config/payment-tokens');
 
 const PENDING_CODES = new Set(['TRANSACTION_NOT_FOUND', 'INSUFFICIENT_CONFIRMATIONS', 'RPC_UNAVAILABLE', 'CHAIN_REORGANIZATION']);
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'ISSUER_REJECTED', 'CANCELLED', 'EXPIRED', 'MANUAL_REVIEW']);
@@ -107,7 +108,8 @@ class TokenRedemptionService {
     if (context.investorStatus !== 'submitted' || !context.investorActive || context.investorDeleted) throw new ApiError(409, 'Investor profile is not active.', undefined, 'INVESTOR_NOT_ACTIVE');
     if (context.organizationStatus !== 'approved' || !context.organizationActive) throw new ApiError(409, 'Issuer organization is not active.', undefined, 'ISSUER_NOT_ACTIVE');
     if (context.hasActivePurchase) throw new ApiError(409, 'Complete the active token purchase before starting a redemption.', undefined, 'ACTIVE_PURCHASE_EXISTS');
-    if (![context.tokenAddress, context.investorWalletAddress, context.treasuryWalletAddress, this.config.redemptionUsdtAddress].every(ethers.isAddress)) {
+    context.paymentTokenAddress = context.paymentTokenAddress || LEGACY_PAYMENT_TOKEN_ADDRESS;
+    if (![context.tokenAddress, context.investorWalletAddress, context.treasuryWalletAddress, context.paymentTokenAddress].every(ethers.isAddress)) {
       throw new ApiError(409, 'Redemption wallet or contract configuration is incomplete.', undefined, 'REDEMPTION_CONFIGURATION_INVALID');
     }
   }
@@ -139,7 +141,7 @@ class TokenRedemptionService {
     let preparation;
     try {
       preparation = await this.blockchain.prepare({
-        usdtContractAddress: this.config.redemptionUsdtAddress,
+        usdtContractAddress: context.paymentTokenAddress,
         tokenAddress: context.tokenAddress, investorWalletAddress: context.investorWalletAddress,
       });
     } catch (error) {
@@ -160,7 +162,7 @@ class TokenRedemptionService {
           ...context, ...preparation, ...amounts, investorUserUid: user.userUid,
           idempotencyKey: input.idempotencyKey, authorizationNonce: createUid(),
           authorizationDeadline: deadline, expiresAt: deadline,
-          usdtContractAddress: ethers.getAddress(this.config.redemptionUsdtAddress),
+          usdtContractAddress: ethers.getAddress(context.paymentTokenAddress),
           tokenAddress: ethers.getAddress(context.tokenAddress),
           investorWalletAddress: ethers.getAddress(context.investorWalletAddress),
           issuerPaymentWalletAddress: ethers.getAddress(context.treasuryWalletAddress),

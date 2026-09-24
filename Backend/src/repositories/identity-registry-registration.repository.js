@@ -17,6 +17,10 @@ class IdentityRegistryRegistrationRepository {
               i.\`countryUid\`, i.\`status\` AS \`investorStatus\`, i.\`isActive\` AS \`investorActive\`,
               c.\`numericCode\` AS \`countryNumericCode\`, c.\`isActive\` AS \`countryActive\`,
               c.\`isDeleted\` AS \`countryDeleted\`,
+              (SELECT COUNT(*) FROM \`tokenCountryRestriction\` configuredRestriction
+               WHERE configuredRestriction.\`tokenUid\` = ii.\`tokenUid\`
+                 AND configuredRestriction.\`isActive\` = 1 AND configuredRestriction.\`isDeleted\` = 0)
+                AS \`countryRestrictionCount\`,
               EXISTS(
                 SELECT 1 FROM \`tokenCountryRestriction\` tr
                 WHERE tr.\`tokenUid\` = ii.\`tokenUid\` AND tr.\`countryUid\` = i.\`countryUid\`

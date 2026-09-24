@@ -1,5 +1,6 @@
 const ethers = require('ethers');
 const { env } = require('../../core/config/env');
+const { listSupportedPaymentTokens } = require('../../config/payment-tokens');
 
 const REDEMPTION_USDT_ABI = [
   'function decimals() view returns (uint8)',
@@ -297,8 +298,9 @@ class TokenRedemptionBlockchainService {
 
   async scanPaymentEvents(fromBlock, toBlock) {
     return this.withProvider(async (provider, chainId) => {
+      const addresses = listSupportedPaymentTokens(chainId, 'REDEMPTION').map((token) => token.contractAddress);
       const logs = await provider.getLogs({
-        address: this.config.redemptionUsdtAddress, topics: [this.transferTopic], fromBlock, toBlock,
+        address: addresses, topics: [this.transferTopic], fromBlock, toBlock,
       });
       return logs.map((log) => {
         const parsed = this.usdtInterface.parseLog(log);

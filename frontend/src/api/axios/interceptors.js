@@ -6,9 +6,33 @@ import { tokenService } from '@/services/token.service';
 import { useAuthStore } from '@/store/auth.store';
 import { useUiStore } from '@/store/ui.store';
 import { queryClient } from '@/lib/queryClient';
+import { getRetryDelayMs, wait } from '@/utils/retry';
 
 let interceptorIds = null;
 let authNotFoundRedirectInProgress = false;
+
+const RATE_LIMIT_MAX_RETRIES = 3;
+
+const retryRateLimitedRequest = async (error) => {
+  const config = error?.config;
+  if (!config || Number(error?.response?.status) !== 429 || config.signal?.aborted) return null;
+
+  const retryCount = Number(config.__rateLimitRetryCount || 0);
+  const maxRetries = Number(config.rateLimitMaxRetries ?? RATE_LIMIT_MAX_RETRIES);
+  if (retryCount >= maxRetries) {
+    error.__retryExhausted = retryCount > 0;
+    error.__retryAttempts = retryCount + 1;
+    return null;
+  }
+
+  const delayMs = getRetryDelayMs(error, retryCount + 1, {
+    baseDelayMs: 800,
+    maxDelayMs: 10_000,
+  });
+  config.__rateLimitRetryCount = retryCount + 1;
+  await wait(delayMs, config.signal);
+  return apiClient.request(config);
+};
 
 const PUBLIC_AUTH_ENDPOINTS = [
   '/auth/login',
@@ -116,8 +140,10 @@ export const setupAxiosInterceptors = () => {
       finishTrackedRequest(response.config);
       return response;
     },
-    (error) => {
+    async (error) => {
       finishTrackedRequest(error.config);
+      const retriedResponse = await retryRateLimitedRequest(error);
+      if (retriedResponse) return retriedResponse;
 
       const status = error.response?.status;
       const hadSession =
@@ -149,7 +175,8 @@ export const setupAxiosInterceptors = () => {
             source: accountLookupSource,
             email: getRequestEmail(error.config),
           });
-          window.location.assign(`${ROUTES.signup}?reason=account-not-found`);
+          authRedirectService.navigate(`${ROUTES.signup}?reason=account-not-found`, { replace: true });
+          window.setTimeout(() => { authNotFoundRedirectInProgress = false; }, 500);
         }
       }
 
@@ -158,7 +185,7 @@ export const setupAxiosInterceptors = () => {
         queryClient.clear();
         const currentPath = window.location.pathname;
         if (currentPath !== ROUTES.login) {
-          window.location.assign(`${ROUTES.login}?reason=session-expired`);
+          authRedirectService.navigate(`${ROUTES.login}?reason=session-expired`, { replace: true });
         }
       }
 
