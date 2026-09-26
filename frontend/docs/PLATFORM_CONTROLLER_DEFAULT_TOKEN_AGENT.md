@@ -5,7 +5,7 @@ Every token created through the issuer token-creation flow includes the configur
 Current default controller:
 
 ```text
-0x9BEFDF75Dc94bbB36532c5d7A74daab28714f579
+0x4052D80c222111234b89AFDfff597B5De8DA50cd
 ```
 
 The deployment service adds this address to `tokenDetails.tokenAgents` together with the issuer/user-selected token agent and existing platform wallet. Addresses are de-duplicated before the gateway transaction is prepared.

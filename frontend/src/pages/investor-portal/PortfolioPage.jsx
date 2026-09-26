@@ -1,3 +1,4 @@
+import { paymentContextOf } from '@/config/payment-tokens';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
@@ -268,7 +269,7 @@ export default function PortfolioPage() {
         return [tokenUid, { status: 'unavailable', value: '', reason: 'Current price unavailable' }];
       }
       try {
-        const price = await getPlatformTokenPrice({ tokenAddress: token.tokenAddress, chainId: token.chainId });
+        const price = await getPlatformTokenPrice({ ...paymentContextOf(token), tokenAddress: token.tokenAddress, chainId: token.chainId });
         const value = String(price.currentTokenPrice || '').trim();
         if (!value || /^0(?:\.0+)?$/.test(value)) {
           return [tokenUid, { status: 'unavailable', value: '', reason: 'Current price is unavailable' }];
@@ -292,6 +293,9 @@ export default function PortfolioPage() {
 
   const overview = useMemo(() => {
     const investedValues = [];
+    const currencies = new Map(items.map((item) => { const payment = paymentContextOf(item); return [`${item.chainId}:${payment.paymentTokenAddress}`, payment.paymentTokenSymbol || item.currency || '']; }));
+    const singleCurrency = currencies.size === 1 && items.every((item) => paymentContextOf(item).paymentTokenAddress);
+    const currency = singleCurrency ? [...currencies.values()][0] : '';
     const walletValues = [];
     let purchaseCount = 0;
     let verifiedBalances = 0;
@@ -299,7 +303,7 @@ export default function PortfolioPage() {
 
     items.forEach((token) => {
       const portfolio = token?.portfolio || {};
-      if (decimalParts(portfolio.totalInvestedUsdtAmount)) investedValues.push(portfolio.totalInvestedUsdtAmount);
+      if (decimalParts(portfolio.totalInvestedPaymentAmount)) investedValues.push(portfolio.totalInvestedPaymentAmount);
       purchaseCount += Number.isFinite(Number(portfolio.purchaseCount)) ? Number(portfolio.purchaseCount) : 0;
 
       const balanceState = walletBalances[portfolioAssetKey(token)];
@@ -317,8 +321,10 @@ export default function PortfolioPage() {
     });
 
     return {
-      totalInvested: sumDecimalValues(investedValues, 2),
-      estimatedWalletValue: pricedBalances === items.length && items.length
+      totalInvested: singleCurrency ? sumDecimalValues(investedValues, 2) : null,
+      currency,
+      mixedCurrencies: !singleCurrency && items.length > 0,
+      estimatedWalletValue: singleCurrency && pricedBalances === items.length && items.length
         ? sumDecimalValues(walletValues, 2)
         : null,
       purchaseCount,
@@ -376,7 +382,7 @@ export default function PortfolioPage() {
           <span className="investor-portfolio-summary__icon"><WalletCards size={20} /></span>
           <div>
             <span>Estimated current value</span>
-            <strong>{loading || overview.estimatedWalletValue === null ? '—' : <CurrencyAmount symbol="USDT">{overview.estimatedWalletValue}</CurrencyAmount>}</strong>
+            <strong>{loading || overview.estimatedWalletValue === null ? '—' : <CurrencyAmount symbol={overview.currency}>{overview.estimatedWalletValue}</CurrencyAmount>}</strong>
             <small>{loading ? 'Checking live balances' : `Live balance × current price, ${summaryScope}`}</small>
           </div>
         </Card>
@@ -384,8 +390,8 @@ export default function PortfolioPage() {
           <span className="investor-portfolio-summary__icon"><Banknote size={20} /></span>
           <div>
             <span>Total invested</span>
-            <strong>{loading || overview.totalInvested === null ? '—' : <CurrencyAmount symbol="USDT">{overview.totalInvested}</CurrencyAmount>}</strong>
-            <small>Completed purchases {summaryScope}</small>
+            <strong>{loading || overview.totalInvested === null ? '—' : <CurrencyAmount symbol={overview.currency}>{overview.totalInvested}</CurrencyAmount>}</strong>
+            <small>{overview.mixedCurrencies ? 'Different payment tokens; see individual asset amounts below.' : `Completed purchases ${summaryScope}`}</small>
           </div>
         </Card>
         <Card className="investor-portfolio-summary__card">
@@ -449,6 +455,7 @@ export default function PortfolioPage() {
               {items.map((token) => {
                 const symbol = token?.symbol && token.symbol !== '—' ? token.symbol : 'TOKEN';
                 const portfolio = token?.portfolio || {};
+                const paymentSymbol = paymentContextOf(token).paymentTokenSymbol || token.currency || 'payment token';
                 const balanceState = walletBalances[portfolioAssetKey(token)] || walletBalanceState('loading');
                 const currentPriceState = platformPrices[portfolioAssetKey(token)] || { status: 'loading', value: '', reason: '' };
                 const currentPrice = currentPriceState.status === 'ready' ? currentPriceState.value : '';
@@ -481,7 +488,7 @@ export default function PortfolioPage() {
 
                     <div className="investor-portfolio-cell investor-portfolio-current-value">
                       <span className="investor-portfolio-cell__label">Estimated value</span>
-                      <strong>{estimatedValue === null ? '—' : `${estimatedValue} USDT`}</strong>
+                      <strong>{estimatedValue === null ? '—' : `${estimatedValue} ${paymentSymbol}`}</strong>
                       <small>{balanceState.status === 'ready' && currentPrice ? 'Current balance × live current price' : currentPriceState.reason || 'Available after live balance and price are verified'}</small>
                     </div>
 
@@ -491,7 +498,7 @@ export default function PortfolioPage() {
                         {currentPriceState.status === 'loading'
                           ? 'Checking…'
                           : currentPrice
-                            ? `${settlementAmount(currentPrice, 18)} USDT`
+                            ? `${settlementAmount(currentPrice, 18)} ${paymentSymbol}`
                             : 'Unavailable'}
                       </strong>
                       {currentPriceState.status === 'ready' ? null : (
@@ -500,7 +507,7 @@ export default function PortfolioPage() {
                       <small>
                         Initial price{' '}
                         {resolveInitialTokenPriceExact(token)
-                          ? `${settlementAmount(resolveInitialTokenPriceExact(token), 18)} USDT`
+                          ? `${settlementAmount(resolveInitialTokenPriceExact(token), 18)} ${paymentSymbol}`
                           : '—'}
                       </small>
                     </div>
@@ -508,12 +515,12 @@ export default function PortfolioPage() {
                     <div className="investor-portfolio-cell investor-portfolio-investment">
                       <span className="investor-portfolio-cell__label">Platform investment</span>
                       <strong>
-                        {`${settlementAmount(portfolio.totalInvestedUsdtAmount, 4)} USDT`}
+                        {`${settlementAmount(portfolio.totalInvestedPaymentAmount, 4)} ${paymentSymbol}`}
                       </strong>
                       <small>
                         Avg. purchase{' '}
                         {portfolio.averagePurchasePrice
-                          ? `${settlementAmount(portfolio.averagePurchasePrice, 4)} USDT`
+                          ? `${settlementAmount(portfolio.averagePurchasePrice, 4)} ${paymentSymbol}`
                           : '—'}
                       </small>
                     </div>

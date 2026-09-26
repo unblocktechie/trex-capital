@@ -33,9 +33,9 @@ PURCHASE_INDEXER_START_BLOCK=0
 PURCHASE_WORKER_ENABLED=true
 ```
 
-Supported payment addresses are maintained in `src/config/payment-tokens.js`; token creation stores
+Supported payment addresses are maintained in `paymentTokenMaster`; token creation stores
 the issuer's selected address in `tokenMaster.paymentTokenAddress`. The backend reads `decimals()`
-from that contract and validates it against the catalogue. `DEPLOYER_PRIVATE_KEY`, `DEPLOYER_ADDRESS`,
+from that contract and validates it against the active database catalogue. `DEPLOYER_PRIVATE_KEY`, `DEPLOYER_ADDRESS`,
 `SEPOLIA_RPC_URL`, and `BLOCKCHAIN_CHAIN_ID` use the existing blockchain configuration.
 
 ## APIs

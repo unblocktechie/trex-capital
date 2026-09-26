@@ -2,11 +2,6 @@ const { ethers } = require('ethers');
 const { env } = require('../../core/config/env');
 const { ApiError } = require('../../core/errors/api-error');
 const { withTransaction } = require('../../database/connection');
-const {
-  LEGACY_PAYMENT_TOKEN_ADDRESS,
-  listSupportedPaymentTokens,
-  findSupportedPaymentToken,
-} = require('../../config/payment-tokens');
 
 const ZERO_ADDRESS = ethers.ZeroAddress;
 const ACTIONS = new Set(['INVEST', 'TRANSFER', 'REDEMPTION']);
@@ -54,8 +49,9 @@ const confirmationsAt = (latestBlock, receiptBlock) => Math.max(
 );
 
 class BlockchainTransactionService {
-  constructor({ repository, config = env.blockchain, transactionRunner = withTransaction, dependencies = {} }) {
+  constructor({ repository, paymentTokenRepository, config = env.blockchain, transactionRunner = withTransaction, dependencies = {} }) {
     this.repository = repository;
+    this.paymentTokenRepository = paymentTokenRepository;
     this.config = config;
     this.transactionRunner = transactionRunner;
     this.providerFactory = dependencies.providerFactory || ((url) => new ethers.JsonRpcProvider(url));
@@ -83,16 +79,22 @@ class BlockchainTransactionService {
     return ethers.getAddress(address);
   }
 
-  paymentAddresses() {
-    return listSupportedPaymentTokens(this.config.chainId).map((token) => ethers.getAddress(token.contractAddress));
+  async paymentAddresses() {
+    const tokens = await this.paymentTokenRepository.listActive(this.config.chainId);
+    return tokens.map((token) => ethers.getAddress(token.contractAddress));
   }
 
-  legacyPaymentAddress() {
-    return ethers.getAddress(LEGACY_PAYMENT_TOKEN_ADDRESS);
+  async defaultPaymentAddress(action = null) {
+    const token = await this.paymentTokenRepository.findDefault(this.config.chainId, action);
+    if (!token) {
+      throw new ApiError(500, 'No default payment token is configured for this network.', undefined,
+        'DEFAULT_PAYMENT_TOKEN_NOT_CONFIGURED');
+    }
+    return ethers.getAddress(token.contractAddress);
   }
 
-  paymentToken(address, action = null) {
-    const token = findSupportedPaymentToken(address, this.config.chainId, action);
+  async paymentToken(address, action = null) {
+    const token = await this.paymentTokenRepository.findActiveByAddress(address, this.config.chainId, action);
     if (!token) {
       throw new ApiError(422, 'Transaction uses an unsupported payment token.', undefined, 'UNSUPPORTED_PAYMENT_TOKEN');
     }
@@ -296,7 +298,8 @@ class BlockchainTransactionService {
       throw new ApiError(422, 'Transaction token amount must be greater than zero.', undefined, 'INVALID_TRANSACTION_AMOUNT');
     }
     const issuerWallet = ethers.getAddress(token.issuerWalletAddress);
-    const storedPaymentAddress = token.paymentTokenAddress || this.legacyPaymentAddress();
+    const storedPaymentAddress = token.paymentTokenAddress
+      || await this.defaultPaymentAddress(action === 'INVEST' ? 'PURCHASE' : 'REDEMPTION');
     const paymentTokenAddress = ethers.getAddress(call.paymentTokenAddress || storedPaymentAddress);
     if (!sameAddress(paymentTokenAddress, storedPaymentAddress)) {
       throw new ApiError(
@@ -306,7 +309,7 @@ class BlockchainTransactionService {
         'PAYMENT_TOKEN_MISMATCH',
       );
     }
-    const paymentTokenConfig = this.paymentToken(
+    const paymentTokenConfig = await this.paymentToken(
       paymentTokenAddress,
       action === 'INVEST' ? 'PURCHASE' : 'REDEMPTION',
     );
@@ -451,16 +454,18 @@ class BlockchainTransactionService {
     };
   }
 
-  submittedRecord({ tx, token, controllerAddress, action, call, decoded, executionType, userUid }) {
+  async submittedRecord({ tx, token, controllerAddress, action, call, decoded, executionType, userUid }) {
     const sender = ethers.getAddress(tx.from);
     const transfer = action === 'TRANSFER';
     const tokenAmountRaw = transfer ? decoded.args[1].toString() : call.tokenAmountRaw;
     const destination = transfer
       ? ethers.getAddress(decoded.args[0])
       : action === 'REDEMPTION' ? call.investorWallet : controllerAddress;
-    const configuredPaymentToken = transfer ? null : findSupportedPaymentToken(
-      call.paymentTokenAddress || token.paymentTokenAddress || this.legacyPaymentAddress(),
+    const configuredPaymentToken = transfer ? null : await this.paymentTokenRepository.findActiveByAddress(
+      call.paymentTokenAddress || token.paymentTokenAddress
+        || await this.defaultPaymentAddress(action === 'INVEST' ? 'PURCHASE' : 'REDEMPTION'),
       this.config.chainId,
+      action === 'INVEST' ? 'PURCHASE' : 'REDEMPTION',
     );
     return {
       chainId: Number(this.config.chainId), tokenUid: token.tokenUid, organizationUid: token.organizationUid,
@@ -544,7 +549,7 @@ class BlockchainTransactionService {
       }
 
       if (!receipt) {
-        const pending = this.submittedRecord({
+        const pending = await this.submittedRecord({
           tx, token, controllerAddress: expectedControllerAddress, action, call, decoded, executionType,
           userUid: actor?.userUid || user?.userUid,
         });

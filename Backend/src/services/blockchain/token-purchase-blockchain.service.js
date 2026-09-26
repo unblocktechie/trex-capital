@@ -1,6 +1,5 @@
 const ethers = require('ethers');
 const { env } = require('../../core/config/env');
-const { listSupportedPaymentTokens } = require('../../config/payment-tokens');
 
 const ERC20_ABI = [
   'function decimals() view returns (uint8)',
@@ -39,6 +38,7 @@ const receiptFields = (receipt, log) => ({
 class TokenPurchaseBlockchainService {
   constructor(config = env.blockchain, dependencies = {}) {
     this.config = config;
+    this.paymentTokenRepository = dependencies.paymentTokenRepository || null;
     this.providerFactory = dependencies.providerFactory || ((url) => new ethers.JsonRpcProvider(url));
     this.walletFactory = dependencies.walletFactory || ((key, provider) => new ethers.Wallet(key, provider));
     this.contractFactory = dependencies.contractFactory || ((address, abi, runner) => new ethers.Contract(address, abi, runner));
@@ -265,7 +265,11 @@ class TokenPurchaseBlockchainService {
 
   async scanPaymentEvents(fromBlock, toBlock) {
     return this.withProvider(async (provider, chainId) => {
-      const addresses = listSupportedPaymentTokens(chainId, 'PURCHASE').map((token) => token.contractAddress);
+      const paymentTokens = this.paymentTokenRepository
+        ? await this.paymentTokenRepository.listActive(chainId, 'PURCHASE')
+        : [];
+      const addresses = paymentTokens.map((token) => token.contractAddress);
+      if (!addresses.length) return [];
       const logs = await provider.getLogs({ address: addresses, topics: [this.transferTopic], fromBlock, toBlock });
       return logs.map((log) => {
         const parsed = this.usdtInterface.parseLog(log);

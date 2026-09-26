@@ -1,5 +1,6 @@
 -- Adds issuer-selected payment tokens while retaining legacy USDT columns/data.
--- The supported-token catalogue lives in src/config/payment-tokens.js.
+-- The catalogue was originally code-backed; apply 20260915_move_payment_tokens_to_database.sql
+-- immediately after this migration to use paymentTokenMaster.
 
 USE `trexLaunchpad`;
 SET time_zone = '+00:00';

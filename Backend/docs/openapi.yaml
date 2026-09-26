@@ -383,8 +383,10 @@ paths:
     get:
       tags: [Token Creation]
       summary: List active payment tokens supported for purchase and redemption
+      description: Returns active paymentTokenMaster rows for the configured blockchain network.
       responses:
         '200': { description: Supported payment-token metadata and contract addresses }
+        '503': { description: Platform Controller payment-token allowlist could not be verified }
   /api/v1/tokens/me:
     get:
       tags: [Token Creation]

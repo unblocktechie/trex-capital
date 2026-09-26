@@ -3,19 +3,17 @@ const path = require('node:path');
 const { ApiError } = require('../core/errors/api-error');
 const { env } = require('../core/config/env');
 const { logger } = require('./common/log.service');
-const { findSupportedPaymentToken } = require('../config/payment-tokens');
 
 const IMAGE_URL = (tokenUid) => `/api/v1/investments/tokens/${tokenUid}/image`;
 
 // Shapes a raw marketplace token row for the API, adding the image URL and country
 // restrictions, and dropping the storage key (an internal detail the client never needs).
-const presentToken = (row, countryRestrictions = []) => {
+const presentToken = (row, countryRestrictions = [], paymentToken = null) => {
   if (!row) return row;
   const { imageStorageKey, imageMimeType, ...rest } = row;
   return {
     ...rest,
-    paymentToken: row.paymentTokenAddress
-      ? findSupportedPaymentToken(row.paymentTokenAddress, env.blockchain.chainId) : null,
+    paymentToken,
     hasImage: Boolean(imageStorageKey),
     imageUrl: imageStorageKey ? IMAGE_URL(row.tokenUid) : null,
     countryRestrictions: countryRestrictions.map((restriction) => ({
@@ -35,6 +33,7 @@ class InvestmentService {
     organizationRepository,
     tokenImageService,
     issuerClaimRepository = null,
+    paymentTokenRepository = null,
     investorUploadsDir = env.investorUploads.directory,
   }) {
     this.repository = repository;
@@ -44,6 +43,7 @@ class InvestmentService {
     this.tokenImageService = tokenImageService;
     // Used by approveInterest to require a SIGNED issuer claim verification before promoting.
     this.issuerClaimRepository = issuerClaimRepository;
+    this.paymentTokenRepository = paymentTokenRepository;
     this.investorUploadsDir = investorUploadsDir;
   }
 
@@ -77,9 +77,21 @@ class InvestmentService {
       investorUserUid: user.roleName === 'Investor' ? user.userUid : null,
     });
 
-    const restrictionsByToken = await this.groupCountryRestrictions(rows.map((row) => row.tokenUid));
+    const [restrictionsByToken, paymentTokens] = await Promise.all([
+      this.groupCountryRestrictions(rows.map((row) => row.tokenUid)),
+      this.paymentTokenRepository?.listActive(env.blockchain.chainId) || [],
+    ]);
+    const paymentTokensByAddress = new Map(paymentTokens.map(
+      (token) => [token.contractAddress.toLowerCase(), token],
+    ));
     return {
-      items: rows.map((row) => presentToken(row, restrictionsByToken.get(row.tokenUid) || [])),
+      items: rows.map((row) => presentToken(
+        row,
+        restrictionsByToken.get(row.tokenUid) || [],
+        row.paymentTokenAddress
+          ? paymentTokensByAddress.get(row.paymentTokenAddress.toLowerCase()) || null
+          : null,
+      )),
       pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
     };
   }
@@ -99,11 +111,14 @@ class InvestmentService {
   async getTokenDetails(tokenUid) {
     const token = await this.repository.findMarketplaceTokenByUid(tokenUid);
     if (!token) throw ApiError.notFound('Token was not found.');
-    const [requiredClaimTopics, countryRestrictions] = await Promise.all([
+    const [requiredClaimTopics, countryRestrictions, paymentToken] = await Promise.all([
       this.tokenRepository.listClaimTopics(tokenUid),
       this.repository.listCountryRestrictionsForTokens([tokenUid]),
+      token.paymentTokenAddress && this.paymentTokenRepository
+        ? this.paymentTokenRepository.findActiveByAddress(token.paymentTokenAddress, env.blockchain.chainId)
+        : null,
     ]);
-    return { ...presentToken(token, countryRestrictions), requiredClaimTopics };
+    return { ...presentToken(token, countryRestrictions, paymentToken), requiredClaimTopics };
   }
 
   // Role-agnostic (admin + investor): serves the optimized token image file.

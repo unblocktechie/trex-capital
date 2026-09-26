@@ -1,3 +1,5 @@
+import { isTokenCreationLocked } from '@/utils/tokenCreationLock';
+import { paymentContextOf } from '@/config/payment-tokens';
 import { DEFAULT_CLAIM_TOPICS, TOKEN_ISSUANCE_STEPS } from '@/config/tokenIssuance';
 
 const first = (...values) => values.find((value) => value !== undefined && value !== null);
@@ -381,7 +383,10 @@ export const mapTokenForm = ({ data, options, countries, logo }) => {
         data?.initialTokenPrice,
         data?.initialPrice,
       ),
-      currency: 'USDT',
+      currency: paymentContextOf(information, data).paymentTokenSymbol,
+      paymentTokenAddress: paymentContextOf(information, data).paymentTokenAddress,
+      paymentTokenLocked: isTokenCreationLocked(data, information),
+      controllerAddress: paymentContextOf(information, data).controllerAddress,
     },
     identityClaims: {
       claimTopics: mappedClaims,
@@ -443,7 +448,8 @@ export const mapTokenForm = ({ data, options, countries, logo }) => {
           data?.imageMimeType ||
           data?.tokenImage ||
           information?.imageMimeType ||
-          information?.tokenImage,
+          information?.tokenImage ||
+          completedSteps.includes('token-information'),
       ),
       updatedAt: first(data?.updatedAt, data?.modifiedAt, null),
     },

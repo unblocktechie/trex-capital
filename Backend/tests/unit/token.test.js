@@ -6,7 +6,7 @@ const path = require('node:path');
 const sharp = require('sharp');
 const ethers = require('ethers');
 const schemas = require('../../src/schemas/token.schema');
-const { TokenService } = require('../../src/services/token.service');
+const { TokenService: BaseTokenService } = require('../../src/services/token.service');
 const { TokenImageService } = require('../../src/services/common/token-image.service');
 const {
   TokenDeploymentReceiptService,
@@ -21,6 +21,16 @@ const organization = {
 const issuer = { userUid: 'user-1', roleName: 'Issuer' };
 const PLATFORM_CONTROLLER = '0x4052D80c222111234b89AFDfff597B5De8DA50cd';
 const LEGACY_PLATFORM_CONTROLLER = '0x40e81FAA4e6D54ae0632DF146939bB5858359271';
+const DEFAULT_PAYMENT_TOKEN = '0x86B14D29A59b745bF08c42661322d13142d5eb49';
+const paymentTokenRepository = {
+  findDefault: async () => ({ contractAddress: DEFAULT_PAYMENT_TOKEN }),
+  findActiveByAddress: async (contractAddress) => ({
+    contractAddress: ethers.getAddress(contractAddress), name: 'USDT', symbol: 'USDT', decimals: 6,
+  }),
+};
+class TokenService extends BaseTokenService {
+  constructor(options) { super({ paymentTokenRepository, ...options }); }
+}
 
 test('token information trims names, uppercases symbols, and accepts only supported decimals', () => {
   const valid = schemas.tokenInformation.validate({

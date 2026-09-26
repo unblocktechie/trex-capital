@@ -9,6 +9,7 @@ const { OrganizationOptionRepository } = require('../repositories/organization-o
 const { OrganizationRepository } = require('../repositories/organization.repository');
 const { TokenRepository } = require('../repositories/token.repository');
 const { TokenOptionRepository } = require('../repositories/token-option.repository');
+const { PaymentTokenRepository } = require('../repositories/payment-token.repository');
 const { TokenDeploymentAttemptRepository } = require('../repositories/token-deployment-attempt.repository');
 const { InvestorRepository } = require('../repositories/investor.repository');
 const { InvestorOptionRepository } = require('../repositories/investor-option.repository');
@@ -51,6 +52,7 @@ const { IdentityRegistryRegistrationService } = require('../services/identity-re
 const { TokenPurchaseService } = require('../services/token-purchase.service');
 const { TokenRedemptionService } = require('../services/token-redemption.service');
 const { TokenRedemptionBlockchainService } = require('../services/blockchain/token-redemption-blockchain.service');
+const { PaymentTokenRegistryService } = require('../services/blockchain/payment-token-registry.service');
 const { TokenTransferService } = require('../services/token-transfer.service');
 const { BlockchainTransactionService } = require('../services/blockchain/blockchain-transaction.service');
 const { BlockchainTransactionIndexerService } = require('../services/blockchain/blockchain-transaction-indexer.service');
@@ -94,6 +96,7 @@ const organizationOptionRepository = new OrganizationOptionRepository();
 const organizationRepository = new OrganizationRepository();
 const organizationIdentityService = new OrganizationIdentityService();
 const tokenRepository = new TokenRepository();
+const paymentTokenRepository = new PaymentTokenRepository();
 const tokenOptionRepository = new TokenOptionRepository();
 const tokenDeploymentAttemptRepository = new TokenDeploymentAttemptRepository();
 const investorRepository = new InvestorRepository();
@@ -115,7 +118,10 @@ const claimStateService = new ClaimStateService();
 const identityRegistryVerifierService = new IdentityRegistryVerifierService();
 const tokenImageService = new TokenImageService();
 const tokenDeploymentReceiptService = new TokenDeploymentReceiptService();
-const tokenRedemptionBlockchainService = new TokenRedemptionBlockchainService();
+const tokenRedemptionBlockchainService = new TokenRedemptionBlockchainService(undefined, {
+  paymentTokenRepository,
+});
+const paymentTokenRegistryService = new PaymentTokenRegistryService({ paymentTokenRepository });
 
 const userService = new UserService(userRepository, roleRepository);
 const roleService = new RoleService(roleRepository, userRepository, permissionRepository);
@@ -142,6 +148,7 @@ const tokenService = new TokenService({
   imageService: tokenImageService,
   deploymentReceiptService: tokenDeploymentReceiptService,
   attemptRepository: tokenDeploymentAttemptRepository,
+  paymentTokenRepository,
 });
 const tokenDeploymentAttemptService = new TokenDeploymentAttemptService({
   attemptRepository: tokenDeploymentAttemptRepository,
@@ -187,15 +194,18 @@ const identityRegistryReconciliationService = new IdentityRegistryReconciliation
 const identityRegistryReconciliationRunner = new IdentityRegistryReconciliationRunner(identityRegistryReconciliationService);
 const blockchainTransactionService = new BlockchainTransactionService({
   repository: blockchainTransactionRepository,
+  paymentTokenRepository,
 });
 const tokenPurchaseService = new TokenPurchaseService({
   repository: tokenPurchaseRepository,
   investmentRepository,
   tokenRepository,
+  paymentTokenRepository,
 });
 const tokenRedemptionService = new TokenRedemptionService({
   repository: tokenRedemptionRepository,
   blockchain: tokenRedemptionBlockchainService,
+  paymentTokenRepository,
 });
 const tokenTransferService = new TokenTransferService({
   repository: tokenTransferRepository,
@@ -213,6 +223,7 @@ const investmentService = new InvestmentService({
   investorRepository,
   organizationRepository,
   tokenImageService,
+  paymentTokenRepository,
   // approveInterest requires a SIGNED issuer claim verification before promoting to verifiedByIssuer.
   issuerClaimRepository,
 });
@@ -261,7 +272,7 @@ const controllers = {
   locations: createLocationController(locationService),
   organizations: createOrganizationController(organizationService, organizationOptionRepository),
   organizationAdmin: createOrganizationAdminController(organizationAdminService),
-  tokens: createTokenController(tokenService, tokenOptionRepository),
+  tokens: createTokenController(tokenService, tokenOptionRepository, paymentTokenRegistryService),
   deploymentAttempts: createDeploymentAttemptController(tokenDeploymentAttemptService),
   investors: createInvestorController(investorService, investorOptionRepository),
   investments: createInvestmentController(investmentService),
@@ -286,6 +297,7 @@ module.exports = {
     identityRegistryRegistrationService, identityRegistryVerifierService, identityRegistryReconciliationService,
     tokenPurchaseService,
     tokenRedemptionService, tokenRedemptionBlockchainService,
+    paymentTokenRegistryService,
     tokenTransferService,
     blockchainTransactionService, blockchainTransactionIndexerService,
     investorInvitationService,
@@ -293,6 +305,7 @@ module.exports = {
   repositories: {
     userRepository, roleRepository, menuRepository, permissionRepository, settingRepository, authTokenRepository,
     locationRepository, organizationOptionRepository, organizationRepository, tokenRepository, tokenOptionRepository,
+    paymentTokenRepository,
     tokenDeploymentAttemptRepository, investorRepository, investorOptionRepository, investmentRepository, issuerClaimRepository,
     investorClaimSubmissionRepository, claimIndexerRepository,
     identityRegistryRegistrationRepository,

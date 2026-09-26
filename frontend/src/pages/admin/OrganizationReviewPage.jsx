@@ -38,7 +38,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ROUTES } from '@/config/routes';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { formatAdminDate, formatAdminDateTime, formatFileSize } from '@/utils/adminFormat';
-import { sanitizeUserFacingMessage } from '@/utils/error';
+import { getErrorMessage, sanitizeUserFacingMessage } from '@/utils/error';
 
 export default function OrganizationReviewPage() {
   const { organizationId } = useParams();
@@ -73,7 +73,12 @@ export default function OrganizationReviewPage() {
       window.setTimeout(() => setDecisionSuccess(false), 1800);
       await refresh();
     },
-    onError: (error) => toast.error('Approval failed', { description: sanitizeUserFacingMessage(error.message) }),
+    onError: (error) =>
+      toast.error('Approval failed', {
+        description: getErrorMessage(error, 'The organization could not be approved. Please try again.'),
+      }),
+    // This screen owns the decision toast so React Query must not show a second one.
+    meta: { silent: true },
   });
 
   const rejectMutation = useMutation({
@@ -83,7 +88,11 @@ export default function OrganizationReviewPage() {
       setRejectOpen(false);
       await refresh();
     },
-    onError: (error) => toast.error('Rejection failed', { description: sanitizeUserFacingMessage(error.message) }),
+    onError: (error) =>
+      toast.error('Rejection failed', {
+        description: getErrorMessage(error, 'The organization could not be rejected. Please try again.'),
+      }),
+    meta: { silent: true },
   });
 
   if (organizationQuery.isLoading) return <DetailPageSkeleton />;

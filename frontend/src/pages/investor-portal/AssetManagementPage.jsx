@@ -194,7 +194,7 @@ export default function AssetManagementPage() {
           <strong>{activeTab === 'invest' ? 'Invest more' : activeTab === 'send' ? 'Send units' : 'Redeem units'}</strong>
           <span>
             {activeTab === 'invest'
-              ? 'Choose how many units to buy. If USDT approval is needed, you will complete it once before investing.'
+              ? 'Choose how many units to buy. If payment-token approval is needed, you will complete it once before investing.'
               : activeTab === 'send'
                 ? 'Enter the approved recipient wallet and amount. We check eligibility before your wallet asks you to confirm.'
                 : 'Choose how many units to redeem. The issuer reviews your request and signs the final redemption from the organization wallet when it is ready.'}

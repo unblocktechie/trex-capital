@@ -89,7 +89,7 @@ Apply `database/migrations/20260823_add_registered_investment_status.sql` so ver
 
 Apply `database/migrations/20260824_add_unique_investor_wallet.sql` to prevent the same normalized wallet address from being registered to multiple submitted investor profiles.
 
-Apply `database/migrations/20260825_add_token_purchase_flow.sql` for the retained legacy purchase history, then `database/migrations/20260908_add_multi_payment_tokens.sql` for issuer-selected payment currencies and generic canonical payment metadata. Supported payment tokens are configured in `src/config/payment-tokens.js`; there is no per-flow payment-token environment variable. See `docs/TOKEN-PURCHASE-FLOW.md`.
+Apply `database/migrations/20260825_add_token_purchase_flow.sql` for the retained legacy purchase history, then `database/migrations/20260908_add_multi_payment_tokens.sql` for issuer-selected payment currencies and generic canonical payment metadata. Apply `database/migrations/20260915_move_payment_tokens_to_database.sql` to create and seed the database-backed payment-token catalogue. There is no per-flow payment-token environment variable. See `docs/TOKEN-PURCHASE-FLOW.md`.
 
 Frontend selection, Controller calldata, verification, recovery, and migration details are in `docs/MULTI-PAYMENT-TOKEN-GUIDE.md`.
 

@@ -1,3 +1,4 @@
+import { paymentContextOf } from '@/config/payment-tokens';
 const first = (...values) => values.find((value) => value !== undefined && value !== null && value !== '');
 const text = (...values) => String(first(...values, '') || '').trim();
 const numberOrNull = (...values) => {
@@ -251,7 +252,8 @@ export const mapMarketplaceToken = (raw = {}, { interest = null, eligibility = n
     initialTokenPriceExact,
     nav: numberOrNull(raw?.nav, raw?.netAssetValue, price),
     initialPrice: initialTokenPrice,
-    currency: text(raw?.currency, pricing?.currency, 'USDT').toUpperCase(),
+    ...paymentContextOf(raw),
+    currency: paymentContextOf(raw).paymentTokenSymbol || text(raw?.currency, pricing?.currency),
     description: splitDescription(first(raw?.description, tokenInformation?.description)),
     shortDescription: text(raw?.shortDescription, raw?.description, tokenInformation?.description, tokenInformation?.assetClass),
     issuer: companyName || '—',
@@ -435,9 +437,10 @@ export const mapInvestorPortfolioItem = (raw = {}) => {
         portfolio?.totalPurchasedAmount,
         portfolio?.purchasedTokenAmount,
       ),
-      totalInvestedUsdtAmount: text(
-        portfolio?.totalInvestedUsdtAmount,
+      totalInvestedPaymentAmount: text(
+        portfolio?.totalInvestedPaymentAmount,
         portfolio?.totalInvestedAmount,
+        portfolio?.totalInvestedUsdtAmount,
         portfolio?.investedUsdtAmount,
       ),
       totalRedeemedTokenAmount: text(
@@ -536,6 +539,30 @@ export const mapInterest = (raw = {}) => {
       raw?.initialTokenPrice,
     ),
     currency: first(tokenRaw?.currency, raw?.currency, raw?.priceCurrency),
+    paymentTokenAddress: first(
+      tokenRaw?.paymentTokenAddress,
+      tokenRaw?.paymentToken?.contractAddress,
+      tokenRaw?.paymentToken?.address,
+      raw?.paymentTokenAddress,
+      raw?.paymentToken?.contractAddress,
+      raw?.paymentToken?.address,
+    ),
+    paymentTokenSymbol: first(
+      tokenRaw?.paymentTokenSymbol,
+      tokenRaw?.paymentToken?.symbol,
+      raw?.paymentTokenSymbol,
+      raw?.paymentToken?.symbol,
+    ),
+    platformControllerAddress: first(
+      tokenRaw?.platformControllerAddress,
+      tokenRaw?.platformController,
+      tokenRaw?.controllerAddress,
+      tokenRaw?.controller?.contractAddress,
+      raw?.platformControllerAddress,
+      raw?.platformController,
+      raw?.controllerAddress,
+      raw?.controller?.contractAddress,
+    ),
     minInvestment: first(
       tokenRaw?.minInvestment,
       tokenRaw?.minimumInvestment,

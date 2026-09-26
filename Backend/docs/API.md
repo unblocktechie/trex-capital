@@ -373,10 +373,15 @@ Publicly returns:
 ### `GET /payment-tokens`
 
 Publicly returns every payment currency supported for purchase and redemption. Each item contains
-`paymentTokenCode`, `name`, `symbol`, `contractAddress`, `decimals`, `chainId`, `networkName`,
-`explorerUrl`, `supportedActions`, and `isActive`. Sepolia currently supports USDT at
+`paymentTokenUid`, `paymentTokenCode`, `name`, `symbol`, `contractAddress`, `decimals`, `chainId`,
+`networkName`, `explorerUrl`, `supportedActions`, `isDefault`, `displayOrder`, and `isActive`.
+The response is loaded from active `paymentTokenMaster` rows. Sepolia currently supports USDT at
 `0x86B14D29A59b745bF08c42661322d13142d5eb49` and USDC at
 `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`.
+
+The server also calls `paymentTokens()` on the configured Platform Controller and returns only
+database addresses present in that on-chain list. If the on-chain list cannot be verified, the API
+returns HTTP `503` with `PAYMENT_TOKEN_REGISTRY_UNAVAILABLE`.
 
 Country choices come from `GET /locations/countries`. Each result includes `countryCode` (alpha-2) and `numericCode` (three-character ISO 3166-1 numeric code, such as `840` for the United States). Token restrictions persist the server-resolved numeric code.
 

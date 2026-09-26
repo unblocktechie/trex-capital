@@ -121,15 +121,19 @@ const activeRegisteredWallet = async ({ connector, connectedAddress, investorWal
 
 /**
  * Read whether the registered investor already completed the app's persistent
- * USDT spending approval. This is a read-only on-chain check and survives page
- * refreshes because the allowance lives in the USDT contract.
+ * payment token spending approval. This is a read-only on-chain check and survives page
+ * refreshes because the allowance lives in the payment token contract.
  */
-export async function getInvestorUsdtSpendingApproval({
+export async function getInvestorPaymentSpendingApproval({
+  controllerAddress,
+  paymentTokenAddress,
   investorWalletAddress,
   chainId,
   requiredPaymentAmountRaw,
 }) {
   return getPlatformPaymentApprovalState({
+    controllerAddress,
+    paymentTokenAddress,
     owner: investorWalletAddress,
     chainId,
     requiredAmountRaw: requiredPaymentAmountRaw,
@@ -137,11 +141,13 @@ export async function getInvestorUsdtSpendingApproval({
 }
 
 /**
- * Complete the one-time USDT spending approval only. No purchase is submitted
+ * Complete the one-time payment token spending approval only. No purchase is submitted
  * by this function. The Platform Controller receives MAX_UINT256 allowance so
  * later purchases can reuse the same permission without another approval.
  */
-export async function approveInvestorUsdtSpending({
+export async function approveInvestorPaymentSpending({
+  controllerAddress,
+  paymentTokenAddress,
   connector,
   connectedAddress,
   investorWalletAddress,
@@ -149,6 +155,8 @@ export async function approveInvestorUsdtSpending({
   onStep,
 }) {
   return approvePlatformPurchaseSpending({
+    controllerAddress,
+    paymentTokenAddress,
     connector,
     connectedAddress,
     investorWalletAddress,
@@ -159,10 +167,12 @@ export async function approveInvestorUsdtSpending({
 
 /**
  * Submit a purchase directly from the registered investor wallet to the
- * Platform Controller. No backend purchase intent is required. USDT spending
+ * Platform Controller. No backend purchase intent is required. payment token spending
  * approval remains a separate wallet transaction.
  */
 export async function submitInvestorPurchasePayment({
+  controllerAddress,
+  paymentTokenAddress,
   connector,
   connectedAddress,
   investorWalletAddress,
@@ -174,6 +184,8 @@ export async function submitInvestorPurchasePayment({
   onStep,
 }) {
   return submitPlatformPurchase({
+    controllerAddress,
+    paymentTokenAddress,
     connector,
     connectedAddress,
     investorWalletAddress,

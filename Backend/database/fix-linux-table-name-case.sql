@@ -41,6 +41,7 @@ RENAME TABLE
   `organizationbeneficialowner` TO `organizationBeneficialOwner`,
   `organizationdocument` TO `organizationDocument`,
   `organizationmaster` TO `organizationMaster`,
+  `paymenttokenmaster` TO `paymentTokenMaster`,
   `permissionmaster` TO `permissionMaster`,
   `statemaster` TO `stateMaster`,
   `tokenclaimtopic` TO `tokenClaimTopic`,

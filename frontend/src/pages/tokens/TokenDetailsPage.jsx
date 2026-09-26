@@ -1,3 +1,4 @@
+import { paymentContextOf } from '@/config/payment-tokens';
 import {
   BadgeCheck,
   CircleDollarSign,
@@ -54,13 +55,13 @@ import { useTokenIssuanceStore } from '@/store/tokenIssuance.store';
 const firstText = (...values) =>
   String(values.find((value) => value !== undefined && value !== null) || '').trim();
 
-const formatTokenPrice = (value) => {
+const formatPriceInCurrency = (value, currency) => {
   const normalized = String(value ?? '').trim();
   const match = normalized.match(/^(\d+)(?:\.(\d+))?$/);
-  if (!match) return value ? formatMoney(value, 'USDT') : '—';
+  if (!match) return value ? formatMoney(value, currency) : '—';
   const whole = match[1].replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',') || '0';
   const fraction = (match[2] || '').replace(/0+$/, '');
-  return `${whole}${fraction ? `.${fraction}` : ''} USDT`;
+  return `${whole}${fraction ? `.${fraction}` : ''} ${currency}`;
 };
 
 const rawAddress = (raw, ...keys) => {
@@ -180,6 +181,9 @@ export default function TokenDetailsPage() {
   const compliance = mapped.compliance || { countries: [] };
   const agents = mapped.agents || {};
   const raw = token.token || {};
+  const { paymentTokenAddress, controllerAddress, paymentTokenSymbol } = paymentContextOf(raw, mapped.supplyPricing);
+  const paymentSymbol = paymentTokenSymbol || mapped.supplyPricing?.currency || 'payment token';
+  const formatTokenPrice = (value) => formatPriceInCurrency(value, paymentSymbol);
   const tokenName = information.name || firstText(raw.tokenName, raw.name) || 'Security Token';
   const symbol = information.symbol || firstText(raw.tokenSymbol, raw.symbol).toUpperCase() || 'TOKEN';
   const candidateTokenContractAddress = rawAddress(
@@ -203,7 +207,7 @@ export default function TokenDetailsPage() {
 
     let active = true;
     setOnchainPriceStatus('loading');
-    getPlatformTokenPrice({ tokenAddress: candidateTokenContractAddress })
+    getPlatformTokenPrice({ tokenAddress: candidateTokenContractAddress, paymentTokenAddress, controllerAddress })
       .then((result) => {
         if (!active) return;
         const price = String(result?.currentTokenPrice || '').trim();
@@ -224,7 +228,7 @@ export default function TokenDetailsPage() {
     return () => {
       active = false;
     };
-  }, [candidateTokenContractAddress]);
+  }, [candidateTokenContractAddress, paymentTokenAddress, controllerAddress]);
 
   useEffect(() => {
     if (!candidateTokenContractAddress) {
@@ -250,7 +254,7 @@ export default function TokenDetailsPage() {
     return () => {
       active = false;
     };
-  }, [candidateTokenContractAddress]);
+  }, [candidateTokenContractAddress, paymentTokenAddress, controllerAddress]);
 
   useEffect(() => {
     if (!candidateTokenContractAddress) return undefined;
@@ -453,6 +457,7 @@ export default function TokenDetailsPage() {
       }
 
       const chainResult = await setPlatformTokenPrice({
+        paymentTokenAddress, controllerAddress,
         connector: wallet.connector,
         connectedAddress: wallet.address,
         issuerWalletAddress: approvedWallet,
@@ -546,7 +551,7 @@ export default function TokenDetailsPage() {
               </button>
             </div>
             <strong className="token-dashboard-header__price-value">
-              <TokenIcon symbol="USDT" size="xs" />
+              <TokenIcon symbol={paymentSymbol} size="xs" />
               <span>{formatTokenPrice(currentPrice)}</span>
             </strong>
             <span>Used for new purchases. Initial price: {formatTokenPrice(initialPrice)}</span>
@@ -861,9 +866,9 @@ export default function TokenDetailsPage() {
           inputMode="decimal"
           autoComplete="off"
           placeholder="Enter new price"
-          trailing={<span className="token-price-editor__currency">USDT</span>}
+          trailing={<span className="token-price-editor__currency">{paymentSymbol}</span>}
           error={priceError || priceValidationError}
-          hint="Enter the USDT price for one asset unit. Example: 704 or 704.50."
+          hint={`Enter the price in ${paymentSymbol}. The payment token cannot be changed.`}
           disabled={updatingPrice}
           required
         />

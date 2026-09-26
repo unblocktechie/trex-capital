@@ -1,3 +1,4 @@
+import { paymentContextOf } from '@/config/payment-tokens';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MoreVertical,
@@ -537,6 +538,7 @@ export default function RedeemTokenPage({
     embedded ? 'Manage Investments' : token ? `${token.name} · Redeem Tokens` : 'Redeem Tokens',
   );
 
+  const paymentContext = useMemo(() => paymentContextOf(token, application), [token, application]);
   const context = useMemo(() => getInvestmentActionContext(token || application), [application, token]);
   const preparedInvestorWallet = clean(redemption?.investorWalletAddress) || context.investorWalletAddress;
   const preparedChainId = redemption?.chainId || context.chainId;
@@ -752,7 +754,7 @@ export default function RedeemTokenPage({
     let active = true;
     setRedemptionFundingLoading(true);
     setRedemptionFundingError('');
-    getPlatformRedemptionFunding({ chainId, tokenAddress, tokenAmountRaw, tokenAmount })
+    getPlatformRedemptionFunding({ ...paymentContext, chainId, tokenAddress, tokenAmountRaw, tokenAmount })
       .then((funding) => {
         if (active) setRedemptionFunding(funding);
       })
@@ -767,6 +769,7 @@ export default function RedeemTokenPage({
 
     return () => { active = false; };
   }, [
+    paymentContext,
     context.chainId,
     context.tokenAddress,
     directRedeemReady,
@@ -1351,10 +1354,10 @@ export default function RedeemTokenPage({
               Enter the number of units you want to redeem, up to your available holding. We check the amount again before submitting your request.
             </p>
             <div className="investor-token-action-calculation">
-              <span>Estimated USDT you will receive</span>
+              <span>Estimated payment token you will receive</span>
               <strong>
                 {estimatedValue ? (
-                  <CurrencyAmount symbol={token.currency || 'USDT'}>${estimatedValue}</CurrencyAmount>
+                  <CurrencyAmount symbol={redemptionFunding?.paymentTokenSymbol || token.currency || ''}>{estimatedValue}</CurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
@@ -1396,16 +1399,16 @@ export default function RedeemTokenPage({
               <span>{activeRedemption ? 'Price used' : 'Current price per unit'}</span>
               <strong>
                 {tokenPriceExact ? (
-                  <CurrencyAmount symbol={token.currency || 'USDT'}>${formatExactTokenAmount(tokenPriceExact)}</CurrencyAmount>
+                  <CurrencyAmount symbol={redemptionFunding?.paymentTokenSymbol || token.currency || ''}>{formatExactTokenAmount(tokenPriceExact)}</CurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
             <div className="investor-token-order-row"><span>Units to redeem</span><strong>{normalizedAmount ? `${formatExactTokenAmount(normalizedAmount)} ${token.symbol}` : '—'}</strong></div>
             <div className="investor-token-order-row investor-token-order-row--primary">
-              <span>Estimated USDT you receive</span>
+              <span>Estimated payment token you receive</span>
               <strong>
                 {estimatedValue ? (
-                  <CurrencyAmount symbol={token.currency || 'USDT'}>${estimatedValue}</CurrencyAmount>
+                  <CurrencyAmount symbol={redemptionFunding?.paymentTokenSymbol || token.currency || ''}>{estimatedValue}</CurrencyAmount>
                 ) : '—'}
               </strong>
             </div>

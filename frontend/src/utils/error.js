@@ -46,6 +46,17 @@ export const getErrorMessage = (error, fallback = 'Something went wrong. Please 
       : `The service is temporarily busy.${retryHint}`;
   }
 
+  const timeoutMessage = String(error?.message || '');
+  const isTimeout =
+    !error?.response &&
+    (error?.code === 'ECONNABORTED' ||
+      error?.code === 'ETIMEDOUT' ||
+      /timeout(?: of)? \d+ms exceeded|timed out/i.test(timeoutMessage));
+
+  if (isTimeout) {
+    return 'The request is taking longer than expected. Refresh to check the latest status before trying again.';
+  }
+
   if (!error?.response && error?.code === 'ERR_NETWORK') {
     return "We're experiencing a temporary issue. Please try again in a few moments.";
   }

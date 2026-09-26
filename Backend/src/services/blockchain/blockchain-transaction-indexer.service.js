@@ -52,8 +52,8 @@ class BlockchainTransactionIndexerService {
   async candidates(provider, tokens, fromBlock, toBlock, addressBatchSize) {
     const candidates = new Map();
     const paymentAddresses = typeof this.transactionService.paymentAddresses === 'function'
-      ? this.transactionService.paymentAddresses()
-      : [this.transactionService.paymentAddress()];
+      ? await this.transactionService.paymentAddresses()
+      : [await this.transactionService.paymentAddress()];
     const controllerAddresses = new Set(tokens
       .map((token) => token.tokenAgentWalletAddress)
       .filter(ethers.isAddress)

@@ -1,3 +1,4 @@
+import { paymentContextOf } from '@/config/payment-tokens';
 import { AlertTriangle, ArrowLeft, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
@@ -56,6 +57,18 @@ const canonicalDecimal = (value) => {
   const whole = wholeRaw.replace(/^0+(?=\d)/, '') || '0';
   const fraction = fractionRaw.replace(/0+$/, '');
   return fraction ? `${whole}.${fraction}` : whole;
+};
+
+// Creation/recovery is the one lifecycle where the frontend knows the controller
+// even before the backend has finalized the deployed asset record. Preserve an
+// asset/controller returned by the backend when available, otherwise use the
+// configured controller that was used for this platform's new deployments.
+const deploymentPaymentContextOf = (...records) => {
+  const context = paymentContextOf(...records);
+  return {
+    ...context,
+    controllerAddress: context.controllerAddress || env.trex.platformController,
+  };
 };
 
 const mandatoryStepError = ({
@@ -638,7 +651,7 @@ export default function DeploymentProcessingPage() {
       queryClient,
       setBackendState,
       setDeployment,
-      supplyPricing?.initialPrice,
+      supplyPricing,
       tokenRecord.tokenUid,
       tokenRecord.userKey,
     ],
@@ -670,11 +683,18 @@ export default function DeploymentProcessingPage() {
 
       const recovered = await recoverTrexDeploymentState({
         transactionHash: deployHash,
-        deploymentConfig: env.trex,
+        deploymentConfig: {
+          ...env.trex,
+          platformController: deploymentPaymentContextOf(tokenRecord.token).controllerAddress,
+        },
       });
       const tokenAddress = recovered.tokenAddress;
       let nextMetadata = {
         ...metadata,
+        platformController: deploymentPaymentContextOf(tokenRecord.token, metadata)
+          .controllerAddress,
+        paymentTokenAddress: deploymentPaymentContextOf(tokenRecord.token, supplyPricing)
+          .paymentTokenAddress,
         tokenAddress,
         contracts: recovered.contracts,
         blockNumber: recovered.blockNumber || metadata.blockNumber,
@@ -813,6 +833,7 @@ export default function DeploymentProcessingPage() {
         let livePrice;
         try {
           livePrice = await getPlatformTokenPrice({
+            ...deploymentPaymentContextOf(tokenRecord.token, supplyPricing, nextMetadata),
             tokenAddress,
             chainId: wallet.requiredChain.id,
           });
@@ -864,6 +885,7 @@ export default function DeploymentProcessingPage() {
               timeout: 45_000,
             });
             livePrice = await getPlatformTokenPrice({
+              ...deploymentPaymentContextOf(tokenRecord.token, supplyPricing, nextMetadata),
               tokenAddress,
               chainId: wallet.requiredChain.id,
             });
@@ -924,6 +946,7 @@ export default function DeploymentProcessingPage() {
           let priceResult;
           try {
             priceResult = await setPlatformTokenPrice({
+              ...deploymentPaymentContextOf(tokenRecord.token, supplyPricing, nextMetadata),
               connector: wallet.connector,
               connectedAddress: wallet.address,
               issuerWalletAddress: approvedWallet,
@@ -931,6 +954,36 @@ export default function DeploymentProcessingPage() {
               currentTokenPrice: configuredTokenPrice,
               chainId: wallet.requiredChain.id,
               onStep: ({ stage, txHash }) => {
+                // Persist at broadcast, before receipt polling. A refresh or RPC
+                // failure must not lose transaction #3 and request it again.
+                if (stage === 'price-confirming' && txHash) {
+                  nextMetadata = {
+                    ...nextMetadata,
+                    configurationStatus: 'price_confirmation_required',
+                    failedStep: 'price-confirmation',
+                    failedTransactionHash: txHash,
+                    priceSetup: {
+                      status: 'pending',
+                      transactionHash: txHash,
+                      currentTokenPrice: configuredTokenPrice,
+                      error: '',
+                    },
+                  };
+                  saveRecoveryRecordSafely('confirmed', {
+                    transactionHash: deployHash,
+                    user: authUser,
+                    issuerWallet: approvedWallet,
+                    tokenUid: nextMetadata.tokenUid,
+                    metadata: nextMetadata,
+                  });
+                  setDeployment({
+                    pendingSync: {
+                      transactionHash: deployHash,
+                      deploymentAttemptUid,
+                      metadata: nextMetadata,
+                    },
+                  });
+                }
                 setDeployment({
                   walletAction: {
                     key: 'activate-token-price',
@@ -961,7 +1014,8 @@ export default function DeploymentProcessingPage() {
               },
             });
           } catch (cause) {
-            const failedHash = cause?.transactionHash || '';
+            const failedHash =
+              cause?.transactionHash || nextMetadata.priceSetup?.transactionHash || '';
             const error = mandatoryStepError({
               message:
                 cause?.code === 'PRICE_CONFIRMATION_PENDING'
@@ -1075,7 +1129,7 @@ export default function DeploymentProcessingPage() {
       completeBackendDeployment,
       organization.walletAddress,
       setDeployment,
-      supplyPricing?.initialPrice,
+      supplyPricing,
       tokenInformation.treasuryWallet,
       tokenRecord.token,
       tokenRecord.tokenUid,
@@ -1504,7 +1558,10 @@ export default function DeploymentProcessingPage() {
           identityClaims,
           compliance,
           agents,
-          deploymentConfig: env.trex,
+          deploymentConfig: {
+            ...env.trex,
+            platformController: deploymentPaymentContextOf(tokenRecord.token).controllerAddress,
+          },
           onStageChange: (activeStage, values = {}) => {
             if (values.transactionHash) {
               transactionSubmitted = true;

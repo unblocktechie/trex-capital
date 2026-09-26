@@ -1,3 +1,4 @@
+import { paymentContextOf } from '@/config/payment-tokens';
 import {
   ArrowRight,
   BadgeCheck,
@@ -56,6 +57,7 @@ export default function DeploymentSuccessPage() {
     raw.deployment?.contracts?.token,
     raw.deployment?.tokenAddress,
   );
+  const { paymentTokenAddress, controllerAddress } = paymentContextOf(raw, token.mapped?.supplyPricing);
   const desiredPrice = firstText(
     information.currentTokenPrice,
     raw.currentTokenPrice,
@@ -86,7 +88,7 @@ export default function DeploymentSuccessPage() {
     Promise.all([
       readTrexTokenPaused({ tokenAddress: tokenContractAddress }),
       desiredPrice
-        ? getPlatformTokenPrice({ tokenAddress: tokenContractAddress })
+        ? getPlatformTokenPrice({ tokenAddress: tokenContractAddress, paymentTokenAddress, controllerAddress })
         : Promise.resolve(null),
     ])
       .then(([paused, price]) => {
@@ -124,7 +126,7 @@ export default function DeploymentSuccessPage() {
     return () => {
       active = false;
     };
-  }, [desiredPrice, token.isPending, tokenContractAddress]);
+  }, [desiredPrice, token.isPending, tokenContractAddress, paymentTokenAddress, controllerAddress]);
 
   useEffect(() => {
     if (

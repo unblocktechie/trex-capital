@@ -226,15 +226,32 @@ export async function submitIssuerRegistryRegistrationTransaction({
     transport: custom(provider),
   });
 
+  const args = [investorWalletAddress, onchainIdentityAddress, country];
+  const publicClient = publicClientFor(chainId);
+
+  // Always simulate the exact authoritative operation again immediately before
+  // opening MetaMask. A retry is a completely new transaction, so it must not
+  // reuse the gas limit from the failed transaction.
+  const estimatedGas = await publicClient.estimateContractGas({
+    account,
+    address: identityRegistryAddress,
+    abi: IDENTITY_REGISTRY_ABI,
+    functionName: 'registerIdentity',
+    args,
+  });
+  const gas = (estimatedGas * 120n) / 100n;
+
   // Return the wallet-provided hash exactly as submitted. MetaMask may internally use
   // delegated execution, so the resulting transaction.to is intentionally not inspected
-  // or required to equal the Identity Registry address in the frontend.
+  // or required to equal the Identity Registry address in the frontend. Viem calls the
+  // transaction gas-limit field `gas`; this is the estimated amount plus a 20% buffer.
   return walletClient.writeContract({
     account,
     chain,
     address: identityRegistryAddress,
     abi: IDENTITY_REGISTRY_ABI,
     functionName: 'registerIdentity',
-    args: [investorWalletAddress, onchainIdentityAddress, country],
+    args,
+    gas,
   });
 }

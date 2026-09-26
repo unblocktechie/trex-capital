@@ -1,3 +1,4 @@
+import { isTokenCreationLocked } from '@/utils/tokenCreationLock';
 import { create } from 'zustand';
 import { AGENT_ROLES, TOKEN_ISSUANCE_STEPS } from '@/config/tokenIssuance';
 import { web3Config } from '@/config/web3';
@@ -57,7 +58,10 @@ export const createInitialTokenIssuanceState = () => ({
   supplyPricing: {
     totalSupply: '',
     initialPrice: '',
-    currency: 'USDT',
+    currency: '',
+    paymentTokenAddress: '',
+    controllerAddress: '',
+    paymentTokenLocked: false,
     minimumInvestment: '',
     maximumInvestment: '',
     minimumTokenPurchase: '',
@@ -163,6 +167,15 @@ export const useTokenIssuanceStore = create((set, get) => ({
 
   updateSection: (section, values) =>
     set((state) => {
+      if (section === 'supplyPricing' && (state.supplyPricing.paymentTokenLocked || isTokenCreationLocked(state.backend, state.deployment))) {
+        values = {
+          ...values,
+          paymentTokenAddress: state.supplyPricing.paymentTokenAddress,
+          controllerAddress: state.supplyPricing.controllerAddress,
+          currency: state.supplyPricing.currency,
+          paymentTokenLocked: true,
+        };
+      }
       if (!valuesChanged(state[section], values)) return state;
       const changedStep = sectionStep[section];
       return {
@@ -346,7 +359,7 @@ export const useTokenIssuanceStore = create((set, get) => ({
         supplyPricing: {
           ...initial.supplyPricing,
           ...(mapped.supplyPricing || {}),
-          currency: 'USDT',
+
         },
         identityClaims: {
           ...initial.identityClaims,
@@ -418,7 +431,7 @@ export const useTokenIssuanceStore = create((set, get) => ({
       supplyPricing: {
         ...state.supplyPricing,
         treasuryWallet: state.supplyPricing.treasuryWallet || address,
-        currency: 'USDT',
+
       },
       identityClaims: {
         ...state.identityClaims,

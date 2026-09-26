@@ -9,13 +9,13 @@ const normalizeSymbol = (value) => String(value || '').trim().toUpperCase();
  * so values remain easy to scan without changing the underlying data.
  */
 export function CurrencyAmount({
-  symbol = 'USDT',
+  symbol = '',
   children,
   className,
   iconSize = 'xs',
   showSymbol = true,
 }) {
-  const normalizedSymbol = normalizeSymbol(symbol) || 'USDT';
+  const normalizedSymbol = normalizeSymbol(symbol) || '—';
 
   return (
     <span className={cn('currency-amount', className)}>

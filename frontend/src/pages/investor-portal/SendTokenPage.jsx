@@ -41,6 +41,7 @@ import {
   saveObservedWalletTransaction,
 } from '@/services/investor/observedWalletTransactionStore';
 import {
+  getInvestorTokenTransferErrorMessage,
   isInvestorTokenTransferWalletRejection,
   submitInvestorTokenTransfer,
 } from '@/services/investor/investorTokenTransferTransaction.service';
@@ -873,7 +874,7 @@ export default function SendTokenPage({
         toast.info('Secure confirmation cancelled. No transfer was submitted.');
       } else {
         setTransferState(TRANSFER_STATE.FAILED);
-        const message = getErrorMessage(sendError, 'The wallet could not submit this transfer.');
+        const message = getInvestorTokenTransferErrorMessage(sendError);
         setTransferError(message);
         toast.error('Unable to send', { description: message });
       }
@@ -1124,7 +1125,7 @@ export default function SendTokenPage({
               <span>{activeTransferUid ? 'Price used' : 'Current price per unit'}</span>
               <strong>
                 {transferPriceExact ? (
-                  <CurrencyAmount symbol={token.currency || 'USDT'}>{formatExactAmount(transferPriceExact)}</CurrencyAmount>
+                  <CurrencyAmount symbol={token.currency || '—'}>{formatExactAmount(transferPriceExact)}</CurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
@@ -1132,7 +1133,7 @@ export default function SendTokenPage({
               <span>Estimated value</span>
               <strong>
                 {estimatedTransferValue === null ? '—' : (
-                  <CurrencyAmount symbol={token.currency || 'USDT'}>
+                  <CurrencyAmount symbol={token.currency || '—'}>
                     {estimatedTransferValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </CurrencyAmount>
                 )}

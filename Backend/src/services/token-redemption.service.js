@@ -4,7 +4,6 @@ const { env } = require('../core/config/env');
 const { withTransaction } = require('../database/connection');
 const { createUid } = require('../utils/token');
 const { RedemptionBlockchainError } = require('./blockchain/token-redemption-blockchain.service');
-const { LEGACY_PAYMENT_TOKEN_ADDRESS } = require('../config/payment-tokens');
 
 const PENDING_CODES = new Set(['TRANSACTION_NOT_FOUND', 'INSUFFICIENT_CONFIRMATIONS', 'RPC_UNAVAILABLE', 'CHAIN_REORGANIZATION']);
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'ISSUER_REJECTED', 'CANCELLED', 'EXPIRED', 'MANUAL_REVIEW']);
@@ -12,10 +11,11 @@ const TERMINAL_STATUSES = new Set(['COMPLETED', 'ISSUER_REJECTED', 'CANCELLED', 
 const ceilDiv = (value, divisor) => (value + divisor - 1n) / divisor;
 
 class TokenRedemptionService {
-  constructor({ repository, blockchain, executionService, config = env.blockchain, transactionRunner = withTransaction }) {
+  constructor({ repository, blockchain, executionService, paymentTokenRepository = null, config = env.blockchain, transactionRunner = withTransaction }) {
     this.repository = repository;
     this.blockchain = blockchain;
     this.executionService = executionService;
+    this.paymentTokenRepository = paymentTokenRepository;
     this.config = config;
     this.transactionRunner = transactionRunner;
   }
@@ -101,14 +101,17 @@ class TokenRedemptionService {
     return result;
   }
 
-  validateContext(context) {
+  async validateContext(context) {
     if (!context) throw new ApiError(404, 'Registered investment was not found.', undefined, 'REGISTERED_INVESTMENT_NOT_FOUND');
     if (context.interestStatus !== 'registered') throw new ApiError(409, 'Investor must be registered for this token before redeeming.', undefined, 'INVESTOR_NOT_REGISTERED');
     if (context.tokenStatus !== 'deployed' || !context.tokenActive) throw new ApiError(409, 'Token is not available for redemption.', undefined, 'TOKEN_NOT_AVAILABLE');
     if (context.investorStatus !== 'submitted' || !context.investorActive || context.investorDeleted) throw new ApiError(409, 'Investor profile is not active.', undefined, 'INVESTOR_NOT_ACTIVE');
     if (context.organizationStatus !== 'approved' || !context.organizationActive) throw new ApiError(409, 'Issuer organization is not active.', undefined, 'ISSUER_NOT_ACTIVE');
     if (context.hasActivePurchase) throw new ApiError(409, 'Complete the active token purchase before starting a redemption.', undefined, 'ACTIVE_PURCHASE_EXISTS');
-    context.paymentTokenAddress = context.paymentTokenAddress || LEGACY_PAYMENT_TOKEN_ADDRESS;
+    if (!context.paymentTokenAddress) {
+      const paymentToken = await this.paymentTokenRepository?.findDefault(this.config.chainId, 'REDEMPTION');
+      context.paymentTokenAddress = paymentToken?.contractAddress || null;
+    }
     if (![context.tokenAddress, context.investorWalletAddress, context.treasuryWalletAddress, context.paymentTokenAddress].every(ethers.isAddress)) {
       throw new ApiError(409, 'Redemption wallet or contract configuration is incomplete.', undefined, 'REDEMPTION_CONFIGURATION_INVALID');
     }
@@ -135,7 +138,7 @@ class TokenRedemptionService {
     const previous = await this.repository.findByIdempotency(user.userUid, input.idempotencyKey);
     if (previous) return { redemption: this.present(previous), existing: true };
     const context = await this.repository.findContext(user.userUid, tokenUid);
-    this.validateContext(context);
+    await this.validateContext(context);
     const active = await this.repository.findActiveByInterest(context.interestUid);
     if (active) return { redemption: this.present(active), existing: true };
     let preparation;

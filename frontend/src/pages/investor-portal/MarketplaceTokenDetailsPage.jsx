@@ -394,7 +394,7 @@ export default function MarketplaceTokenDetailsPage() {
             <div className="marketplace-snapshot-grid marketplace-snapshot-grid--friendly">
               <SnapshotCard label="Price per unit" className="marketplace-snapshot-card--price">
                 {token.price == null ? '—' : (
-                  <CurrencyAmount symbol={token.currency || 'USDT'}>${number.format(token.price)}</CurrencyAmount>
+                  <CurrencyAmount symbol={token.currency || '—'}>${number.format(token.price)}</CurrencyAmount>
                 )}
               </SnapshotCard>
               <SnapshotCard label="Investor limit">{displayNumber(token.maxInvestors)}</SnapshotCard>
@@ -479,7 +479,7 @@ export default function MarketplaceTokenDetailsPage() {
             actionLoading={actionLoading}
           />
           <Card className="marketplace-help-card"><span className="marketplace-help-card__icon"><HelpCircle size={18} /></span><div><strong>Need to update your information?</strong><p>Open your profile to review your identity, eligibility information, registered wallet, and documents.</p><button type="button" onClick={() => navigate(`${ROUTES.profile}?token=${encodeURIComponent(token.id)}`)}><Mail size={14} /> View my profile</button></div></Card>
-          <Card className="marketplace-network-card marketplace-network-card--friendly"><span><Building2 size={16} /> How this investment is protected</span>{token.currentInvestors != null ? <p><UsersRound size={14} /> {number.format(token.currentInvestors)} investors currently registered</p> : null}<p><Banknote size={14} /> Purchases are priced in {token.currency || 'USDT'}</p><p><WalletCards size={14} /> Investor approval is checked before transfers</p></Card>
+          <Card className="marketplace-network-card marketplace-network-card--friendly"><span><Building2 size={16} /> How this investment is protected</span>{token.currentInvestors != null ? <p><UsersRound size={14} /> {number.format(token.currentInvestors)} investors currently registered</p> : null}<p><Banknote size={14} /> Purchases are priced in {token.currency || '—'}</p><p><WalletCards size={14} /> Investor approval is checked before transfers</p></Card>
         </aside>
       </div>
 

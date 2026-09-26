@@ -4,7 +4,26 @@ import { z } from 'zod';
 // newly created T-REX token. It remains environment-overridable for controlled
 // network migrations, while this address is the default for the current platform.
 export const DEFAULT_TREX_PLATFORM_CONTROLLER_ADDRESS =
-  '0x40e81FAA4e6D54ae0632DF146939bB5858359271';
+  '0x4052D80c222111234b89AFDfff597B5De8DA50cd';
+
+// Keep API requests patient enough for backend workflows that can include
+// database updates and downstream/on-chain verification. Individual APIs may
+// still opt into a longer timeout when required.
+export const DEFAULT_REQUEST_TIMEOUT_MS = 500_000;
+
+const defaultPlatformControllerAddress = z.preprocess(
+  (value) =>
+    typeof value === 'string' && value.trim() === '' ? undefined : value,
+  z
+    .string()
+    .trim()
+    .regex(/^0x[a-fA-F0-9]{40}$/, 'Platform Controller must be a valid EVM address.')
+    .refine(
+      (value) => value.toLowerCase() !== '0x0000000000000000000000000000000000000000',
+      'Platform Controller cannot be the zero address.',
+    )
+    .default(DEFAULT_TREX_PLATFORM_CONTROLLER_ADDRESS),
+);
 
 const envSchema = z.object({
   VITE_APP_NAME: z.string().default('T-REX Capital Market'),
@@ -13,7 +32,7 @@ const envSchema = z.object({
   VITE_API_BASE_URL: z.string().url().default('http://192.168.29.90:3000/api'),
   VITE_API_VERSION: z.string().default('v1'),
   VITE_SOCKET_URL: z.string().default('ws://192.168.29.90:3000/ws'),
-  VITE_REQUEST_TIMEOUT: z.coerce.number().positive().default(500000),
+  VITE_REQUEST_TIMEOUT: z.coerce.number().positive().default(DEFAULT_REQUEST_TIMEOUT_MS),
   VITE_USE_MOCK_API: z.enum(['true', 'false']).default('false'),
   VITE_ENABLE_DARK_MODE: z.enum(['true', 'false']).default('false'),
   VITE_ENABLE_ANALYTICS: z.enum(['true', 'false']).default('false'),
@@ -25,7 +44,7 @@ const envSchema = z.object({
   VITE_SEPOLIA_RPC_URL: z.string().url().default('https://ethereum-sepolia-rpc.publicnode.com'),
   VITE_TREX_GATEWAY_ADDRESS: z.string().default('0x32c06Dcd426ee86c4FDD2514c58785ff7A5DDAc0'),
   VITE_TREX_PLATFORM_WALLET_ADDRESS: z.string().default('0xDbBdcA99d568B54feaAb6c6D34e8f0093c509859'),
-  VITE_TREX_PLATFORM_CONTROLLER_ADDRESS: z.string().default(DEFAULT_TREX_PLATFORM_CONTROLLER_ADDRESS),
+  VITE_TREX_PLATFORM_CONTROLLER_ADDRESS: defaultPlatformControllerAddress,
   VITE_TREX_PAYMENT_TOKEN_ADDRESS: z.string().default('0x86B14D29A59b745bF08c42661322d13142d5eb49'),
   VITE_ONCHAIN_ID_FACTORY_ADDRESS: z.string().default('0xe1da45b88C9d3f4347A6E1C6e8ee63e360068a15'),
   VITE_COUNTRY_RESTRICT_MODULE_ADDRESS: z.string().default('0xF5D3F29B57f2fd33aDbF5d6A5F5C774C07D18fDf'),

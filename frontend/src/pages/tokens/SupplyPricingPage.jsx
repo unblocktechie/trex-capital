@@ -1,9 +1,14 @@
+import { isTokenCreationLocked } from '@/utils/tokenCreationLock';
+import { PaymentTokenSelect } from '@/components/token-issuance/PaymentTokenSelect';
 import { ArrowRight, Calculator, Coins, LockKeyhole } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FieldWrapper, InfoCallout, SectionCard, SelectInput, TextareaInput, TextInput } from '@/components/token-issuance/IssuancePrimitives';
+import { FieldWrapper, InfoCallout, SectionCard, TextareaInput, TextInput } from '@/components/token-issuance/IssuancePrimitives';
 import { IssuanceLayout } from '@/components/token-issuance/IssuanceLayout';
-import { SUPPORTED_CURRENCIES } from '@/config/tokenIssuance';
+import { usePaymentTokens } from '@/hooks/usePaymentTokens';
+import { supportsPaymentAction } from '@/config/payment-tokens';
+import { web3Config } from '@/config/web3';
+import { env } from '@/config/env';
 import { ROUTES } from '@/config/routes';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useWalletConnection } from '@/hooks/useWalletConnection';
@@ -12,8 +17,13 @@ import { formatMoney, formatNumber, getImpliedValuation, validateSupplyPricing }
 
 export default function SupplyPricingPage() {
   const navigate = useNavigate();
+  const catalogue = usePaymentTokens();
+  const options = (catalogue.data || []).filter((item) => item.chainId === web3Config.requiredChain.id && supportsPaymentAction(item, 'create'));
   const wallet = useWalletConnection();
   const data = useTokenIssuanceStore((state) => state.supplyPricing);
+  const backend = useTokenIssuanceStore((state) => state.backend);
+  const deployment = useTokenIssuanceStore((state) => state.deployment);
+  const paymentLocked = Boolean(data.paymentTokenLocked || isTokenCreationLocked(backend, deployment));
   const updateSection = useTokenIssuanceStore((state) => state.updateSection);
   const hydrateWalletDefaults = useTokenIssuanceStore((state) => state.hydrateWalletDefaults);
   const markStepCompleted = useTokenIssuanceStore((state) => state.markStepCompleted);
@@ -86,11 +96,21 @@ export default function SupplyPricingPage() {
           <FieldWrapper label="Initial token price" required error={fieldError('initialPrice')} hint="Price per token at the start of the offering." htmlFor="initial-price">
             <TextInput id="initial-price" type="number" min="0" step="any" inputMode="decimal" value={data.initialPrice} onChange={(event) => update('initialPrice', event.target.value)} onBlur={() => blur('initialPrice')} placeholder="10.00" error={fieldError('initialPrice')} />
           </FieldWrapper>
-          <FieldWrapper label="Price currency" required error={fieldError('currency')} htmlFor="price-currency">
-            <SelectInput id="price-currency" value={data.currency} onChange={(event) => update('currency', event.target.value)} onBlur={() => blur('currency')} error={fieldError('currency')}>
-              {SUPPORTED_CURRENCIES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-            </SelectInput>
-          </FieldWrapper>
+          <PaymentTokenSelect id="price-currency" label="Payment token" required items={options}
+            value={data.paymentTokenAddress || ''} disabled={paymentLocked || catalogue.isPending}
+            placeholder={catalogue.isPending ? 'Loading payment tokens…' : 'Select payment token'}
+            hint={paymentLocked ? 'Payment token is fixed after creation.' : 'You can change this during setup. It becomes fixed when you create the token.'}
+            error={fieldError('currency') || (catalogue.isError ? 'Unable to load payment tokens. Refresh and try again.' : undefined)}
+            onChange={(event) => {
+              const selected = options.find((item) => item.contractAddress === event.target.value);
+              updateSection('supplyPricing', {
+                paymentTokenAddress: selected?.contractAddress || '',
+                controllerAddress: selected
+                  ? selected.controllerAddress || env.trex.platformController
+                  : '',
+                currency: selected?.symbol || '',
+              });
+            }} />
           <FieldWrapper label="Lock-up period" error={fieldError('lockupDays')} hint="Optional number of calendar days." htmlFor="supply-lockup">
             <TextInput id="supply-lockup" type="number" min="0" inputMode="numeric" value={data.lockupDays} onChange={(event) => update('lockupDays', event.target.value)} onBlur={() => blur('lockupDays')} placeholder="0" error={fieldError('lockupDays')} />
           </FieldWrapper>

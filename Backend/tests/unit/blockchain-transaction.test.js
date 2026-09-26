@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ethers } = require('ethers');
 const {
-  BlockchainTransactionService, CONTROLLER_ABI, MULTI_PAYMENT_CONTROLLER_ABI, TOKEN_ABI, PAYMENT_ABI, sameAddress,
+  BlockchainTransactionService: BaseBlockchainTransactionService,
+  CONTROLLER_ABI, MULTI_PAYMENT_CONTROLLER_ABI, TOKEN_ABI, PAYMENT_ABI, sameAddress,
 } = require('../../src/services/blockchain/blockchain-transaction.service');
 const { BlockchainTransactionIndexerService } = require('../../src/services/blockchain/blockchain-transaction-indexer.service');
 
@@ -19,6 +20,22 @@ const BLOCK_HASH = `0x${'b'.repeat(64)}`;
 const controllerInterface = new ethers.Interface(CONTROLLER_ABI);
 const tokenInterface = new ethers.Interface(TOKEN_ABI);
 const paymentInterface = new ethers.Interface(PAYMENT_ABI);
+const paymentTokenRepository = {
+  listActive: async () => [
+    { contractAddress: USDT, name: 'USDT', symbol: 'USDT', decimals: 6 },
+    { contractAddress: ethers.getAddress('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'), name: 'USDC', symbol: 'USDC', decimals: 6 },
+  ],
+  findDefault: async () => ({ contractAddress: USDT, name: 'USDT', symbol: 'USDT', decimals: 6 }),
+  findActiveByAddress: async (contractAddress) => ({
+    contractAddress: ethers.getAddress(contractAddress),
+    name: sameAddress(contractAddress, USDT) ? 'USDT' : 'USDC',
+    symbol: sameAddress(contractAddress, USDT) ? 'USDT' : 'USDC',
+    decimals: 6,
+  }),
+};
+class BlockchainTransactionService extends BaseBlockchainTransactionService {
+  constructor(options) { super({ paymentTokenRepository, ...options }); }
+}
 
 const encodedLog = (iface, event, values, contract, index) => {
   const encoded = iface.encodeEventLog(iface.getEvent(event), values);

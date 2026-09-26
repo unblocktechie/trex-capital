@@ -4,7 +4,6 @@ const { env } = require('../core/config/env');
 const { ApiError } = require('../core/errors/api-error');
 const { withTransaction } = require('../database/connection');
 const { logger } = require('./common/log.service');
-const { LEGACY_PAYMENT_TOKEN_ADDRESS, findSupportedPaymentToken } = require('../config/payment-tokens');
 
 const requiredFields = (data, fields, section) => {
   const missing = fields.filter((field) => data[field] === undefined || data[field] === null || data[field] === '');
@@ -57,6 +56,7 @@ class TokenService {
     imageService,
     deploymentReceiptService,
     attemptRepository,
+    paymentTokenRepository,
     config = env.blockchain,
     transactionRunner = withTransaction,
   }) {
@@ -67,6 +67,7 @@ class TokenService {
     this.imageService = imageService;
     this.deploymentReceiptService = deploymentReceiptService;
     this.attemptRepository = attemptRepository;
+    this.paymentTokenRepository = paymentTokenRepository;
     this.config = config;
     this.transactionRunner = transactionRunner;
   }
@@ -84,14 +85,32 @@ class TokenService {
     return ethers.getAddress(address);
   }
 
-  paymentToken(address, action = null) {
-    const token = findSupportedPaymentToken(address, this.config.chainId, action);
+  async paymentToken(address, action = null, executor) {
+    const token = await this.paymentTokenRepository.findActiveByAddress(
+      address,
+      this.config.chainId,
+      action,
+      executor,
+    );
     if (!token) {
       throw new ApiError(
         422,
         'paymentTokenAddress is not an active supported payment token for this network.',
         [{ field: 'paymentTokenAddress', message: 'Select a payment token returned by GET /api/v1/payment-tokens.' }],
         'UNSUPPORTED_PAYMENT_TOKEN',
+      );
+    }
+    return token;
+  }
+
+  async defaultPaymentToken(action = null, executor) {
+    const token = await this.paymentTokenRepository.findDefault(this.config.chainId, action, executor);
+    if (!token) {
+      throw new ApiError(
+        500,
+        'No default payment token is configured for this network.',
+        undefined,
+        'DEFAULT_PAYMENT_TOKEN_NOT_CONFIGURED',
       );
     }
     return token;
@@ -129,8 +148,10 @@ class TokenService {
   // is still present. Returns the loaded claim topics and country restrictions.
   async assertTokenReadyForDeployment(token, organization) {
     requiredFields(token, DEPLOYMENT_REQUIRED_FIELDS, 'Token form');
-    this.paymentToken(token.paymentTokenAddress || LEGACY_PAYMENT_TOKEN_ADDRESS, 'PURCHASE');
-    this.paymentToken(token.paymentTokenAddress || LEGACY_PAYMENT_TOKEN_ADDRESS, 'REDEMPTION');
+    const paymentTokenAddress = token.paymentTokenAddress
+      || (await this.defaultPaymentToken('PURCHASE')).contractAddress;
+    await this.paymentToken(paymentTokenAddress, 'PURCHASE');
+    await this.paymentToken(paymentTokenAddress, 'REDEMPTION');
     for (const field of ORGANIZATION_WALLET_FIELDS) {
       if (String(token[field]).toLowerCase() !== organization.walletAddress.toLowerCase()) {
         throw ApiError.badRequest(`${field} must match the approved organization walletAddress.`);
@@ -158,11 +179,12 @@ class TokenService {
       this.repository.listClaimTopics(token.tokenUid),
       this.repository.listCountryRestrictions(token.tokenUid),
     ]);
+    const paymentToken = token.paymentTokenAddress
+      ? await this.paymentTokenRepository.findActiveByAddress(token.paymentTokenAddress, this.config.chainId)
+      : null;
     return {
       ...token,
-      paymentToken: token.paymentTokenAddress
-        ? findSupportedPaymentToken(token.paymentTokenAddress, this.config.chainId)
-        : null,
+      paymentToken,
       imageUrl: token.imageStorageKey ? '/api/v1/tokens/me/image' : null,
       claimTopics,
       countryRestrictions,
@@ -172,9 +194,10 @@ class TokenService {
   async getOrCreate(user, organization, executor) {
     const existing = await this.repository.findByUserUid(user.userUid, executor);
     if (existing) return existing;
+    const defaultPaymentToken = await this.defaultPaymentToken(null, executor);
     return this.repository.createForOrganization(organization, user.userUid, {
       tokenAgentWalletAddress: this.platformControllerAddress(),
-      paymentTokenAddress: LEGACY_PAYMENT_TOKEN_ADDRESS,
+      paymentTokenAddress: defaultPaymentToken.contractAddress,
       currentStep: 'tokenInformation',
       isDraft: true,
       status: 'draft',
@@ -203,11 +226,11 @@ class TokenService {
     const { isDraft, ...fields } = input;
     if (fields.paymentTokenAddress) {
       fields.paymentTokenAddress = ethers.getAddress(
-        this.paymentToken(fields.paymentTokenAddress, 'PURCHASE').contractAddress,
+        (await this.paymentToken(fields.paymentTokenAddress, 'PURCHASE')).contractAddress,
       );
     }
     if (!fields.paymentTokenAddress && !current?.paymentTokenAddress) {
-      fields.paymentTokenAddress = LEGACY_PAYMENT_TOKEN_ADDRESS;
+      fields.paymentTokenAddress = (await this.defaultPaymentToken('PURCHASE')).contractAddress;
     }
     const update = {
       ...fields,

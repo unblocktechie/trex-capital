@@ -1,3 +1,4 @@
+import { parseExactUnits } from '@/utils/paymentAmounts';
 import { isAddress } from 'viem';
 import { TOKEN_CREATION_AGENT_ROLES } from '@/config/tokenIssuance';
 import { getTokenLogoValidationError } from '@/utils/tokenLogo';
@@ -38,8 +39,12 @@ export const getImpliedValuation = (supply, price) => {
 export const validateTokenInformation = (data, supplyPricing = {}, options = {}) => {
   const errors = {};
   const tokenName = String(data.name || '').trim();
-  const logoError = getTokenLogoValidationError(data.logo);
+  const hasPersistedLogo = Boolean(options.imageAvailable || options.hasPersistedLogo);
+  const logoError = hasPersistedLogo ? '' : getTokenLogoValidationError(data.logo);
 
+  // A previously saved token image is authoritative even when the browser cannot restore the
+  // image blob (for example after a refresh, signed URL expiry, or an image endpoint hiccup).
+  // Requiring data.logo in that case creates a false review blocker for otherwise complete drafts.
   if (logoError) errors.logo = logoError;
 
   if (!tokenName) {
@@ -61,6 +66,8 @@ export const validateTokenInformation = (data, supplyPricing = {}, options = {})
     errors.decimals = 'Select one of the supported decimal values: 2, 6, 8, or 18.';
   }
 
+  if (!supplyPricing.paymentTokenAddress) errors.paymentTokenAddress = 'Select a payment token.';
+  try { parseExactUnits(supplyPricing.initialPrice, 6); } catch { errors.initialPrice = 'Enter a positive price with at most 6 decimal places.'; }
   if (!positiveNumber(supplyPricing.initialPrice)) {
     errors.initialPrice = 'Enter a starting price greater than zero.';
   }
@@ -84,6 +91,8 @@ export const validateSupplyPricing = (data) => {
   if (!positiveNumber(data.totalSupply)) {
     errors.totalSupply = 'Total supply must be greater than zero.';
   }
+  try { parseExactUnits(data.initialPrice, 6); } catch { errors.initialPrice = 'Enter a positive price with at most 6 decimal places.'; }
+  if (!data.paymentTokenAddress) errors.currency = 'Select a payment token.';
   if (!positiveNumber(data.initialPrice)) {
     errors.initialPrice = 'Initial price must be greater than zero.';
   }
@@ -195,16 +204,18 @@ export const validateStep = (stepKey, state) => {
   }
 };
 
-export const buildReviewChecklist = (state, wallet, expectedWallet = '') => {
-  const tokenValid =
-    Object.keys(
-      validateTokenInformation(state.tokenInformation, state.supplyPricing, {
-        requiredTreasuryWallet: expectedWallet,
-      }),
-    ).length === 0;
-  const claimsValid = Object.keys(validateIdentityClaims(state.identityClaims)).length === 0;
-  const complianceValid = Object.keys(validateCompliance(state.compliance)).length === 0;
-  const agentsValid = Object.keys(validateAgents(state.agents, expectedWallet)).length === 0;
+export const buildReviewChecklist = (state, wallet, expectedWallet = '', options = {}) => {
+  const tokenErrors = validateTokenInformation(state.tokenInformation, state.supplyPricing, {
+    requiredTreasuryWallet: expectedWallet,
+    imageAvailable: options.imageAvailable,
+  });
+  const claimErrors = validateIdentityClaims(state.identityClaims);
+  const complianceErrors = validateCompliance(state.compliance);
+  const agentErrors = validateAgents(state.agents, expectedWallet);
+  const tokenValid = Object.keys(tokenErrors).length === 0;
+  const claimsValid = Object.keys(claimErrors).length === 0;
+  const complianceValid = Object.keys(complianceErrors).length === 0;
+  const agentsValid = Object.keys(agentErrors).length === 0;
   const walletAuthorized = Boolean(
     wallet.isConnected &&
       expectedWallet &&
@@ -216,36 +227,55 @@ export const buildReviewChecklist = (state, wallet, expectedWallet = '') => {
       id: 'token-metadata',
       label: 'Asset details complete',
       status: tokenValid ? 'valid' : 'error',
+      reason: Object.values(tokenErrors)[0] || '',
+      stepKey: 'token-information',
     },
     {
       id: 'identity-claims',
       label: 'Investor checks complete',
       status: claimsValid ? 'valid' : 'error',
+      reason: Object.values(claimErrors)[0] || '',
+      stepKey: 'identity-claims',
     },
     {
       id: 'compliance-parameters',
       label: 'Investment rules complete',
       status: complianceValid ? 'valid' : 'error',
+      reason: Object.values(complianceErrors)[0] || '',
+      stepKey: 'compliance',
     },
     {
       id: 'agent-wallets',
       label: 'Management roles assigned',
       status: agentsValid ? 'valid' : 'error',
+      reason: Object.values(agentErrors)[0] || '',
+      stepKey: 'agents',
     },
     {
       id: 'wallet',
       label: 'Organization account connected',
       status: wallet.isConnected ? 'valid' : 'error',
+      reason: wallet.isConnected ? '' : 'Connect the approved organization account.',
     },
     {
       id: 'authorized-wallet',
       label: 'Correct organization account connected',
       status: !wallet.isConnected ? 'pending' : walletAuthorized ? 'valid' : 'error',
+      reason: !wallet.isConnected
+        ? 'Connect the approved organization account.'
+        : walletAuthorized
+          ? ''
+          : 'The connected account does not match the approved organization account.',
     },
     {
       id: 'network',
       label: 'Required network connected',
       status: !wallet.isConnected ? 'pending' : wallet.isCorrectNetwork ? 'valid' : 'error',
+      reason: !wallet.isConnected
+        ? 'Connect the approved organization account first.'
+        : wallet.isCorrectNetwork
+          ? ''
+          : 'Switch the wallet to the required network.',
     },
     {
       id: 'contract-configuration',
@@ -254,6 +284,17 @@ export const buildReviewChecklist = (state, wallet, expectedWallet = '') => {
         tokenValid && claimsValid && complianceValid && agentsValid && walletAuthorized
           ? 'valid'
           : 'pending',
+      reason: !tokenValid
+        ? 'Asset details still need review.'
+        : !claimsValid
+          ? 'Investor checks still need review.'
+          : !complianceValid
+            ? 'Investment rules still need review.'
+            : !agentsValid
+              ? 'Management roles still need review.'
+              : !walletAuthorized
+                ? 'Connect the approved organization account.'
+                : '',
     },
   ];
 };

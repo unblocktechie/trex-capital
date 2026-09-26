@@ -36,6 +36,73 @@ export const isInvestorTokenTransferWalletRejection = (error) =>
   walletErrorCode(error) === 4001
   || /user rejected|user denied|request rejected|rejected the request/.test(walletErrorText(error));
 
+const firstWalletErrorMessage = (error) =>
+  String(error?.shortMessage || error?.details || error?.message || '').trim();
+
+const looksLikeTechnicalWalletError = (message) =>
+  /contract function|contract call:|function:\s*transfer|args:|sender:|docs:\s*https?:|viem@|execution reverted|simulatecontract|contractfunctionrevertederror|rpc request|eth_estimateGas|eth_sendTransaction|request arguments/i.test(
+    message,
+  );
+
+/**
+ * Convert wallet / viem transfer failures into concise copy suitable for the
+ * investor UI. Raw contract simulation output can contain addresses, calldata,
+ * library versions and documentation URLs; none of that helps an investor
+ * decide what to do next.
+ */
+export const getInvestorTokenTransferErrorMessage = (error) => {
+  const code = walletErrorCode(error);
+  const text = walletErrorText(error);
+  const originalMessage = firstWalletErrorMessage(error);
+
+  if (
+    code === -32002
+    || /already pending|request of type.*already pending|wallet request.*pending/.test(text)
+  ) {
+    return 'A wallet request is already open. Complete or close it in MetaMask, then try again.';
+  }
+
+  if (/insufficient funds.*gas|insufficient funds for intrinsic transaction cost/.test(text)) {
+    return 'Your registered wallet needs a small amount of Sepolia ETH to pay the network fee.';
+  }
+
+  if (/transfer not possible|transfer is not possible/.test(text)) {
+    return 'This transfer is not allowed by the token’s current transfer rules. Check that the recipient is approved and eligible to receive this asset, then try again. No tokens were sent.';
+  }
+
+  if (/recipient.*(?:not verified|not eligible|not registered)|identity.*(?:not verified|not registered)/.test(text)) {
+    return 'The recipient is not currently approved to receive this asset. Ask them to complete the required verification, then try again.';
+  }
+
+  if (/token.*paused|transfer.*paused|pausable: paused|contract is paused/.test(text)) {
+    return 'Transfers for this asset are temporarily paused. Try again after the issuer enables transfers.';
+  }
+
+  if (/address.*frozen|wallet.*frozen|tokens?.*frozen|account.*frozen/.test(text)) {
+    return 'This transfer cannot be completed because one of the accounts or token units is currently restricted. Contact the issuer if you believe this is unexpected.';
+  }
+
+  if (/insufficient balance|transfer amount exceeds balance|exceeds.*balance/.test(text)) {
+    return 'You do not have enough available token units for this transfer. Reduce the amount and try again.';
+  }
+
+  if (/nonce too low|already known transaction|replacement transaction underpriced/.test(text)) {
+    return 'Your wallet is still processing a recent transaction. Wait a moment, then try again.';
+  }
+
+  if (/network|rpc|transport|failed to fetch|disconnected|timeout/.test(text)) {
+    return 'Your wallet temporarily lost its network connection. No tokens were sent. Please try again.';
+  }
+
+  // Preserve application-authored errors (wrong wallet, wrong network, invalid
+  // recipient, etc.) because those are already concise and actionable.
+  if (originalMessage && !looksLikeTechnicalWalletError(originalMessage)) {
+    return originalMessage;
+  }
+
+  return 'This transfer could not be prepared by your wallet. Check the recipient and amount, then try again. No tokens were sent.';
+};
+
 const parseChainId = (value) => {
   if (typeof value === 'number') return value;
   if (typeof value === 'bigint') return Number(value);

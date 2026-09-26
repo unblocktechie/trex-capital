@@ -2,9 +2,10 @@
 
 ## Source of configuration
 
-Supported payment currencies are defined in `src/config/payment-tokens.js`. Do not add separate
-purchase/redemption address environment variables. Each entry contains display metadata, chain,
-decimals, explorer URL, supported actions, and active state.
+Supported payment currencies are stored in `paymentTokenMaster`. Do not add separate
+purchase/redemption address environment variables or hardcode a currency in application code.
+Each row contains display metadata, chain, decimals, explorer URL, purchase/redemption support,
+default selection, ordering, and active/deleted state.
 
 Current Sepolia currencies:
 
@@ -15,6 +16,13 @@ Current Sepolia currencies:
 
 Use `GET /api/v1/payment-tokens` for the frontend dropdown. The same list is also included in
 `GET /api/v1/token-options`.
+
+Both endpoints first load active rows for the configured chain from `paymentTokenMaster`, then call
+`paymentTokens()` on the currently configured Platform Controller. They return only the address
+intersection. A database row that has not been enabled in the Controller is never exposed. If the
+Controller allowlist cannot be verified through the primary or fallback RPCs, the endpoint fails
+closed with HTTP `503` and `PAYMENT_TOKEN_REGISTRY_UNAVAILABLE` instead of returning an
+unverified database-only list.
 
 ## Token creation
 
@@ -64,7 +72,7 @@ The verifier decodes the payment token from the new Controller calldata and requ
 Canonical history stores generic `paymentToken*` and `paymentAmount*` fields. The older `usdt*`
 fields remain populated as compatibility aliases and are not used to choose the currency.
 
-The checkpointed indexer scans all configured payment-token addresses plus deployed token transfer
+The checkpointed indexer loads and scans all active database payment-token addresses plus deployed token transfer
 events. It calls the same verifier as the fast confirmation API, so missed frontend confirmations
 are recovered idempotently. Existing legacy Controller signatures remain supported for already
 deployed tokens.
@@ -72,5 +80,11 @@ deployed tokens.
 ## Deployment
 
 Apply `database/migrations/20260908_add_multi_payment_tokens.sql` after the canonical blockchain
-transaction migration. Back up production first. The migration is additive and backfills existing
-tokens/history to the original USDT address.
+transaction migration, then apply `database/migrations/20260915_move_payment_tokens_to_database.sql`.
+The latter creates and seeds `paymentTokenMaster`. Back up production first. Both migrations are
+additive and existing token selections/history remain unchanged.
+
+To add a currency later, insert it into `paymentTokenMaster`, enable the applicable
+`supportsPurchase`/`supportsRedemption` flags, and add it to the Platform Controller's on-chain
+payment-token list. Both conditions are required before it appears in the API. Set only one active
+default row per chain. No backend code deployment is required.

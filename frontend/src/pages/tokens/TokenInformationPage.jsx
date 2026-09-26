@@ -1,3 +1,9 @@
+import { isTokenCreationLocked } from '@/utils/tokenCreationLock';
+import { PaymentTokenSelect } from '@/components/token-issuance/PaymentTokenSelect';
+import { usePaymentTokens } from '@/hooks/usePaymentTokens';
+import { supportsPaymentAction, paymentContextOf } from '@/config/payment-tokens';
+import { web3Config } from '@/config/web3';
+import { env } from '@/config/env';
 import { ArrowRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -37,6 +43,7 @@ const INFORMATION_FIELD_MAP = {
   tokenSymbol: 'symbol',
   decimals: 'decimals',
   initialTokenPrice: 'initialPrice',
+  paymentTokenAddress: 'paymentTokenAddress',
   treasuryWalletAddress: 'treasuryWallet',
   tokenDescription: 'description',
   tokenImage: 'logo',
@@ -57,9 +64,16 @@ export default function TokenInformationPage() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [serverErrors, setServerErrors] = useState({});
+  const catalogue = usePaymentTokens();
+  const paymentOptions = (catalogue.data || []).filter((item) => item.chainId === web3Config.requiredChain.id && supportsPaymentAction(item, 'create'));
+  const selectedPayment = (catalogue.data || []).find((item) => item.contractAddress.toLowerCase() === String(supplyPricing.paymentTokenAddress || '').toLowerCase());
+  const paymentSymbol = selectedPayment?.symbol || supplyPricing.currency || 'payment token';
+  const deployment = useTokenIssuanceStore((state) => state.deployment);
+  const paymentLocked = Boolean(supplyPricing.paymentTokenLocked || isTokenCreationLocked(backend, deployment));
   const organizationWallet = organization?.walletAddress || '';
   const errors = validateTokenInformation(data, supplyPricing, {
     requiredTreasuryWallet: organizationWallet,
+    imageAvailable: backend.imageAvailable,
   });
   useDocumentTitle('Asset Details');
 
@@ -67,11 +81,6 @@ export default function TokenInformationPage() {
     hydrateWalletDefaults(organizationWallet);
   }, [hydrateWalletDefaults, organizationWallet]);
 
-  useEffect(() => {
-    if (supplyPricing.currency !== 'USDT') {
-      updateSection('supplyPricing', { currency: 'USDT' });
-    }
-  }, [supplyPricing.currency, updateSection]);
 
   useEffect(() => {
     if (organizationWallet && data.treasuryWallet !== organizationWallet) {
@@ -99,6 +108,10 @@ export default function TokenInformationPage() {
     setSubmitted(true);
     setServerErrors({});
     markStepTouched('token-information');
+    if (!selectedPayment || !paymentOptions.includes(selectedPayment)) {
+      setServerErrors({ paymentTokenAddress: 'Select an active payment token from the catalogue.' });
+      return;
+    }
     if (Object.keys(errors).length) return;
 
     setSaving(true);
@@ -108,12 +121,21 @@ export default function TokenInformationPage() {
       formData.append('tokenSymbol', data.symbol.trim().toUpperCase());
       formData.append('decimals', String(data.decimals));
       formData.append('initialTokenPrice', String(supplyPricing.initialPrice));
+      formData.append('paymentTokenAddress', selectedPayment.contractAddress);
       formData.append('treasuryWalletAddress', data.treasuryWallet.trim());
       formData.append('tokenDescription', data.description.trim());
       formData.append('isDraft', 'false');
-      formData.append('tokenImage', await tokenLogoToFile(data.logo));
+      if (data.logo?.dataUrl) {
+        formData.append('tokenImage', await tokenLogoToFile(data.logo));
+      } else if (!backend.imageAvailable) {
+        throw new Error('Please upload a token logo.');
+      }
 
       const response = await tokenApi.saveInformation(formData);
+      const savedPayment = paymentContextOf(response);
+      if (savedPayment.paymentTokenAddress.toLowerCase() !== selectedPayment.contractAddress.toLowerCase()) {
+        throw new Error('The server did not confirm the selected payment token. Refresh before continuing.');
+      }
       updateSection('tokenInformation', {
         name: response?.tokenName || data.name.trim(),
         symbol: String(response?.tokenSymbol || data.symbol).toUpperCase(),
@@ -124,7 +146,13 @@ export default function TokenInformationPage() {
       });
       updateSection('supplyPricing', {
         initialPrice: String(response?.initialTokenPrice ?? supplyPricing.initialPrice),
-        currency: 'USDT',
+        currency: selectedPayment.symbol,
+        paymentTokenAddress: selectedPayment.contractAddress,
+        controllerAddress:
+          savedPayment.controllerAddress ||
+          selectedPayment.controllerAddress ||
+          env.trex.platformController,
+        paymentTokenLocked: isTokenCreationLocked(response),
       });
       recordBackendSave('token-information', response);
       markStepCompleted('token-information');
@@ -255,22 +283,48 @@ export default function TokenInformationPage() {
               Decimal places do not change the total value of the asset. They only decide how small a fraction of one unit can be represented. For example, 6 decimal places allows quantities smaller than one whole unit.
             </HelpDetails>
 
+            <PaymentTokenSelect
+              id="asset-payment-token"
+              label="Payment token"
+              required
+              compact
+              networkLabel={web3Config.requiredChain.name}
+              value={supplyPricing.paymentTokenAddress || ''}
+              items={paymentLocked && selectedPayment && !paymentOptions.includes(selectedPayment) ? [selectedPayment, ...paymentOptions] : paymentOptions}
+              placeholder={catalogue.isPending ? 'Loading payment tokens…' : 'Select payment token'}
+              searchable={false}
+              disabled={backend.isLocked || saving || paymentLocked || catalogue.isPending}
+              error={fieldError('paymentTokenAddress') || (catalogue.isError ? 'Unable to load payment tokens. Refresh and try again.' : undefined)}
+              hint={paymentLocked ? 'Payment token is fixed. You can update the numeric price after deployment.' : 'You can change this during setup. It becomes fixed when you create the token.'}
+              onChange={(event) => {
+                const selected = paymentOptions.find((item) => item.contractAddress === event.target.value);
+                clearServerError('paymentTokenAddress');
+                updateSection('supplyPricing', {
+                  paymentTokenAddress: selected?.contractAddress || '',
+                  controllerAddress: selected
+                    ? selected.controllerAddress || env.trex.platformController
+                    : '',
+                  currency: selected?.symbol || '',
+                });
+              }}
+            />
+
             <FieldWrapper
-              label="Starting price per unit (USDT)"
+              label={`Starting price per unit (${paymentSymbol})`}
               required
               error={fieldError('initialPrice')}
-              hint="Enter the starting price for one unit of the asset. Example: 10 means one unit starts at 10 USDT."
+              hint={`Price for one asset unit in ${paymentSymbol}. Use at most 6 decimal places.`}
               htmlFor="initial-token-price"
             >
               <div className="issuance-currency-input">
                 <span className="issuance-currency-input__icon" aria-hidden="true">
-                  <TokenIcon symbol="USDT" name="USD Coin" size="sm" />
+                  <TokenIcon symbol={paymentSymbol} size="sm" />
                 </span>
                 <TextInput
                   id="initial-token-price"
                   className="issuance-currency-input__control"
                   type="number"
-                  min="0.00000001"
+                  min="0.000001"
                   step="any"
                   inputMode="decimal"
                   value={supplyPricing.initialPrice}
@@ -283,7 +337,7 @@ export default function TokenInformationPage() {
                     clearServerError('initialPrice');
                     updateSection('supplyPricing', {
                       initialPrice: nextValue,
-                      currency: 'USDT',
+
                     });
                   }}
                   onBlur={() => blur('initialPrice')}

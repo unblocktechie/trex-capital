@@ -16,8 +16,11 @@ import * as path from 'path';
  *   1. token.addAgent(controller) — one-time, makes the controller a real
  *      Agent able to mint/burn on this token.
  *   2. controller.setPrice(token, price) — TREXPlatformController.setPrice
- *      only accepts calls from the token's own owner() (the issuer).
- *      Pricing, and responsibility for it, stays entirely with the issuer.
+ *      only accepts calls from the token's own owner() (the issuer). Price
+ *      is a single value shared by every whitelisted payment token (USDT,
+ *      USDC, ...) — the controller scales it per payment token's own
+ *      decimals at buy/redeem time. Pricing, and responsibility for it,
+ *      stays entirely with the issuer.
  *
  * Required env vars:
  *   SEPOLIA_RPC_URL
@@ -25,8 +28,9 @@ import * as path from 'path';
  *                             only key that can add the controller as Agent
  *                             or set this token's price.
  *   TOKEN_ADDRESS             the T-REX token to wire up.
- *   INITIAL_PRICE             human-readable price per whole token in the
- *                             payment token's units, e.g. "10" for 10 USDT.
+ *   INITIAL_PRICE             human-readable price per whole token, e.g.
+ *                             "10" for 10 units of whichever payment token
+ *                             (USDT, USDC, ...) the investor pays with.
  */
 
 const deploymentsPath = path.join(__dirname, '..', 'deployments', 'sepolia.json');
@@ -61,9 +65,8 @@ async function main() {
 
   const deployment = JSON.parse(fs.readFileSync(deploymentsPath, 'utf8'));
   const controllerAddress = deployment.platform?.platformController;
-  const paymentTokenAddress = deployment.platform?.paymentToken;
-  if (!controllerAddress || !paymentTokenAddress) {
-    throw new Error('platform.platformController / platform.paymentToken missing from deployments/sepolia.json — run deploy-platform-controller.ts first');
+  if (!controllerAddress) {
+    throw new Error('platform.platformController missing from deployments/sepolia.json — run deploy-platform-controller.ts first');
   }
 
   const controllerArtifact = JSON.parse(fs.readFileSync(controllerArtifactPath, 'utf8'));
@@ -90,21 +93,21 @@ async function main() {
     console.log('  -> done (tx', addAgentTx.hash, ')');
   }
 
-  // Read the payment token's own decimals on-chain rather than assuming 6 —
-  // same "don't duplicate what's already on chain" principle as the
-  // controller contract itself.
-  const paymentToken = new ethers.Contract(paymentTokenAddress, ['function decimals() view returns (uint8)'], provider);
-  const paymentDecimals = await (paymentToken as any).decimals();
-  const price = ethers.parseUnits(initialPrice, paymentDecimals);
+  // Price is stored in the controller's fixed PRICE_DECIMALS precision,
+  // shared by every whitelisted payment token — not any one payment
+  // token's own decimals.
+  const priceDecimals = await (controllerAsIssuer as any).PRICE_DECIMALS();
+  const price = ethers.parseUnits(initialPrice, priceDecimals);
 
-  console.log(`\nIssuer wallet setting price = ${initialPrice} (payment-token units, ${price} smallest units)...`);
+  console.log(`\nIssuer wallet setting price = ${initialPrice} (${price} smallest units, ${priceDecimals} decimals)...`);
   const setPriceTx = await (controllerAsIssuer as any).setPrice(tokenAddress, price);
   await setPriceTx.wait();
   console.log('  -> done (tx', setPriceTx.hash, ')');
 
   console.log('\n=== Done ===');
-  console.log('Reminder: the issuer must also approve the controller to spend USDT');
-  console.log('for redemptions: paymentToken.approve(controller, amount).');
+  console.log('Reminder: the issuer must also approve the controller to spend whichever');
+  console.log('whitelisted payment token investors redeem with, e.g.:');
+  console.log('  paymentToken.approve(controller, amount)');
 }
 
 main().catch((error) => {

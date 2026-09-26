@@ -2,8 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { beneficialOwnerSchema, beneficialOwnersSchema } from '../src/validations/organization.schemas.js';
 import { complianceSchema } from '../src/validations/investor.schemas.js';
-import { toCompliancePayload } from '../src/api/tokens/token.mapper.js';
-import { validateCompliance } from '../src/utils/tokenIssuance.js';
+import { mapTokenForm, toCompliancePayload } from '../src/api/tokens/token.mapper.js';
+import {
+  buildReviewChecklist,
+  validateCompliance,
+  validateTokenInformation,
+} from '../src/utils/tokenIssuance.js';
 import { getInvestmentJourney } from '../src/utils/investmentJourney.js';
 import { getRetryAfterMs, getRetryDelayMs, retryAsync, wait } from '../src/utils/retry.js';
 import { getWalletFundingIssue } from '../src/utils/walletFunding.js';
@@ -120,4 +124,86 @@ test('partial portfolio records have independent keys without inventing token UI
   assert.notEqual(portfolioAssetKey({ symbol: 'ONE', name: 'One' }), portfolioAssetKey({ symbol: 'TWO', name: 'Two' }));
   assert.equal(portfolioAssetKey({ tokenUid: 'backend-id', tokenAddress: '0xABC' }), 'backend-id');
   assert.equal(portfolioAssetKey({ chainId: 11155111, tokenAddress: '0xABC' }), '11155111:0xabc');
+});
+
+
+test('persisted token image does not falsely block a refreshed draft', () => {
+  const information = {
+    logo: null,
+    name: 'Sample Asset',
+    symbol: 'SAMP',
+    decimals: '18',
+    treasuryWallet: '0x0000000000000000000000000000000000000001',
+    description: 'A complete saved token draft.',
+  };
+  const pricing = {
+    paymentTokenAddress: '0x0000000000000000000000000000000000000002',
+    initialPrice: '1',
+  };
+
+  assert.ok(validateTokenInformation(information, pricing).logo);
+  assert.equal(
+    validateTokenInformation(information, pricing, { imageAvailable: true }).logo,
+    undefined,
+  );
+});
+
+test('review checklist accepts backend-authoritative saved image after refresh', () => {
+  const walletAddress = '0x0000000000000000000000000000000000000001';
+  const state = {
+    tokenInformation: {
+      logo: null,
+      name: 'Sample Asset',
+      symbol: 'SAMP',
+      decimals: '18',
+      treasuryWallet: walletAddress,
+      description: 'A complete saved token draft.',
+    },
+    supplyPricing: {
+      paymentTokenAddress: '0x0000000000000000000000000000000000000002',
+      initialPrice: '1',
+    },
+    identityClaims: {
+      claimTopics: [{ id: 'kyc', enabled: true, claimTopicUid: 'claim-1' }],
+      trustedIssuer: { mode: 'organization', address: walletAddress },
+    },
+    compliance: { maximumInvestors: '100', maximumBalance: '10', countries: [] },
+    agents: {
+      tokenAgent: { address: walletAddress },
+      identityRegistryAgent: { address: walletAddress },
+    },
+  };
+  const wallet = {
+    isConnected: true,
+    isCorrectNetwork: true,
+    address: walletAddress,
+  };
+
+  const withoutPersistedImage = buildReviewChecklist(state, wallet, walletAddress);
+  assert.equal(withoutPersistedImage.find((item) => item.id === 'token-metadata').status, 'error');
+
+  const withPersistedImage = buildReviewChecklist(state, wallet, walletAddress, {
+    imageAvailable: true,
+  });
+  assert.equal(withPersistedImage.find((item) => item.id === 'token-metadata').status, 'valid');
+  assert.equal(withPersistedImage.find((item) => item.id === 'contract-configuration').status, 'valid');
+});
+
+
+test('backend step progression preserves saved-image authority when image blob is not returned', () => {
+  const mapped = mapTokenForm({
+    data: {
+      tokenUid: 'token-1',
+      currentStep: 'review',
+      status: 'draft',
+      tokenName: 'Sample Asset',
+      tokenSymbol: 'SAMP',
+    },
+    options: { claimTopics: [] },
+    countries: [],
+    logo: null,
+  });
+
+  assert.equal(mapped.completedSteps.includes('token-information'), true);
+  assert.equal(mapped.server.imageAvailable, true);
 });

@@ -107,7 +107,9 @@ export default function ReviewDeployPage() {
     () => ({ tokenInformation, supplyPricing, identityClaims, compliance, agents }),
     [agents, compliance, identityClaims, supplyPricing, tokenInformation],
   );
-  const checks = buildReviewChecklist(state, wallet, tokenInformation.treasuryWallet);
+  const checks = buildReviewChecklist(state, wallet, tokenInformation.treasuryWallet, {
+    imageAvailable: backend.imageAvailable,
+  });
   const normalizedBackendStatus = String(backend.status || '')
     .toLowerCase()
     .replace(/[^a-z]/g, '');
@@ -122,6 +124,12 @@ export default function ReviewDeployPage() {
   const isDeploymentFailed = normalizedBackendStatus === 'deploymentfailed';
   const isDeployed = ['deployed', 'completed', 'active'].includes(normalizedBackendStatus);
   const blocking = hasBlockingReviewErrors(checks) || isDeployed;
+  const firstBlockingCheck = checks.find(
+    (check) => check.status === 'error' || check.status === 'pending',
+  );
+  const blockingReason = isDeployed
+    ? 'This asset has already been created.'
+    : firstBlockingCheck?.reason || firstBlockingCheck?.label || '';
   const validChecks = checks.filter((check) => check.status === 'valid').length;
   const kyc = identityClaims.claimTopics.find((topic) => topic.id === 'kyc');
   const accredited = identityClaims.claimTopics.find((topic) => topic.id === 'accredited');
@@ -332,7 +340,7 @@ export default function ReviewDeployPage() {
                 <DetailItem label="Decimal places">{tokenInformation.decimals}</DetailItem>
                 <DetailItem label="Starting price per unit">
                   {supplyPricing.initialPrice
-                    ? formatMoney(supplyPricing.initialPrice, 'USDT')
+                    ? formatMoney(supplyPricing.initialPrice, supplyPricing.currency || '—')
                     : '—'}
                 </DetailItem>
                 <DetailItem label="Approved organization account" full>
@@ -424,6 +432,8 @@ export default function ReviewDeployPage() {
                     <div
                       key={check.id}
                       className={cn('review-check', `review-check--${check.status}`)}
+                      title={check.reason || undefined}
+                      aria-label={check.reason ? `${check.label}: ${check.reason}` : check.label}
                     >
                       <Icon size={18} />
                       <span>{check.label}</span>
@@ -655,6 +665,7 @@ export default function ReviewDeployPage() {
                 onClick={openDeployment}
                 disabled={blocking}
                 loading={startingDeployment}
+                title={blocking ? blockingReason : undefined}
               >
                 {isDeploymentPending
                   ? 'Continue Creation'

@@ -4,8 +4,8 @@ This worker is the fallback/source-of-truth ingestion path for frontend-executed
 and Redemption transactions.
 
 It scans sequential safe block ranges using the global `canonicalTransactions` row in
-`blockchainIndexerCheckpoint`. It monitors every active payment-token contract configured in
-`src/config/payment-tokens.js` for settlement events sent
+`blockchainIndexerCheckpoint`. It loads every active payment-token contract from
+`paymentTokenMaster` and monitors it for settlement events sent
 through the Platform Controller stored on each active token (including older Controller versions),
 and every active deployed token for ERC-20 `Transfer` events. Every
 candidate is passed to the same strict verifier used by the fast confirmation endpoint.
@@ -29,6 +29,7 @@ rewinds by the configured lookback, and replays the range.
 
 Runtime settings are available in `.env` and `generalSettings`. Apply
 `database/migrations/20260905_add_canonical_blockchain_transactions.sql` and
-`database/migrations/20260908_add_multi_payment_tokens.sql` before starting the app.
+`database/migrations/20260908_add_multi_payment_tokens.sql`, followed by
+`database/migrations/20260915_move_payment_tokens_to_database.sql`, before starting the app.
 Set `TRANSACTION_INDEXER_START_BLOCK` to the earliest relevant Platform Controller transaction or
 deployed-token activity block when historical backfill is required.

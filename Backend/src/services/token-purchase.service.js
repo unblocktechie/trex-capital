@@ -4,7 +4,6 @@ const { env } = require('../core/config/env');
 const { withTransaction } = require('../database/connection');
 const { PurchaseBlockchainError } = require('./blockchain/token-purchase-blockchain.service');
 const { presentToken } = require('./investment.service');
-const { LEGACY_PAYMENT_TOKEN_ADDRESS } = require('../config/payment-tokens');
 
 const ceilDiv = (value, divisor) => (value + divisor - 1n) / divisor;
 
@@ -15,6 +14,7 @@ class TokenPurchaseService {
     mintService,
     investmentRepository = null,
     tokenRepository = null,
+    paymentTokenRepository = null,
     transactionService = null,
     config = env.blockchain,
     transactionRunner = withTransaction,
@@ -24,6 +24,7 @@ class TokenPurchaseService {
     this.mintService = mintService;
     this.investmentRepository = investmentRepository;
     this.tokenRepository = tokenRepository;
+    this.paymentTokenRepository = paymentTokenRepository;
     this.transactionService = transactionService;
     this.config = config;
     this.transactionRunner = transactionRunner;
@@ -84,12 +85,15 @@ class TokenPurchaseService {
     };
   }
 
-  validateContext(context) {
+  async validateContext(context) {
     if (!context) throw new ApiError(404, 'Registered investment was not found.', undefined, 'REGISTERED_INVESTMENT_NOT_FOUND');
     if (context.interestStatus !== 'registered') throw new ApiError(409, 'Investor must be registered for this token before purchasing.', undefined, 'INVESTOR_NOT_REGISTERED');
     if (context.tokenStatus !== 'deployed' || !context.tokenActive) throw new ApiError(409, 'Token is not available for purchase.', undefined, 'TOKEN_NOT_AVAILABLE');
     if (context.investorStatus !== 'submitted' || !context.investorActive || context.investorDeleted) throw new ApiError(409, 'Investor profile is not active.', undefined, 'INVESTOR_NOT_ACTIVE');
-    context.paymentTokenAddress = context.paymentTokenAddress || LEGACY_PAYMENT_TOKEN_ADDRESS;
+    if (!context.paymentTokenAddress) {
+      const paymentToken = await this.paymentTokenRepository?.findDefault(this.config.chainId, 'PURCHASE');
+      context.paymentTokenAddress = paymentToken?.contractAddress || null;
+    }
     const addresses = [context.tokenAddress, context.treasuryWalletAddress, context.investorWalletAddress, context.paymentTokenAddress];
     if (!addresses.every(ethers.isAddress)) throw new ApiError(409, 'Purchase wallet or contract configuration is incomplete.', undefined, 'PURCHASE_CONFIGURATION_INVALID');
   }
@@ -116,7 +120,7 @@ class TokenPurchaseService {
     const previous = await this.repository.findByIdempotency(user.userUid, input.idempotencyKey);
     if (previous) return { purchase: this.present(previous), existing: true };
     const context = await this.repository.findContext(user.userUid, tokenUid);
-    this.validateContext(context);
+    await this.validateContext(context);
     const active = await this.repository.findActiveByInterest(context.interestUid);
     if (active) return { purchase: this.present(active), existing: true };
     const activeRedemption = typeof this.repository.findActiveRedemptionByInterest === 'function'
@@ -224,6 +228,12 @@ class TokenPurchaseService {
         topicsByToken.set(tokenUid, await this.tokenRepository.listClaimTopics(tokenUid));
       }));
     }
+    const paymentTokens = this.paymentTokenRepository
+      ? await this.paymentTokenRepository.listActive(this.config.chainId)
+      : [];
+    const paymentTokensByAddress = new Map(paymentTokens.map(
+      (token) => [token.contractAddress.toLowerCase(), token],
+    ));
     return {
       items: result.rows.map((row) => {
         const {
@@ -236,7 +246,13 @@ class TokenPurchaseService {
           firstPurchaseAt, latestPurchaseAt, latestRedemptionAt, latestSentAt, latestReceivedAt,
           ...tokenRow
         } = row;
-        const token = presentToken(tokenRow, restrictionsByToken.get(row.tokenUid) || []);
+        const token = presentToken(
+          tokenRow,
+          restrictionsByToken.get(row.tokenUid) || [],
+          tokenRow.paymentTokenAddress
+            ? paymentTokensByAddress.get(tokenRow.paymentTokenAddress.toLowerCase()) || null
+            : null,
+        );
         return {
           ...token,
           chainId: Number(chainId),

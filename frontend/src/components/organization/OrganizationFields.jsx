@@ -47,6 +47,8 @@ export const SelectField = forwardRef(function SelectField(
     disabled = false,
     searchable,
     showEmptyOption = true,
+    renderOption,
+    renderValue,
     required = false,
     ...props
   },
@@ -158,6 +160,7 @@ export const SelectField = forwardRef(function SelectField(
   };
 
   const emitValue = (nextValue) => {
+    if (disabled) return;
     const node = selectRef.current;
     if (node) node.value = String(nextValue);
     if (!controlled) setInternalValue(String(nextValue));
@@ -250,7 +253,7 @@ export const SelectField = forwardRef(function SelectField(
         }}
       >
         <span className={cn('org-select-trigger__value', !selectedOption && 'is-placeholder')}>
-          {selectedOption?.label || placeholder}
+          {selectedOption ? (renderValue ? renderValue(selectedOption) : selectedOption.label) : placeholder}
         </span>
         <ChevronDown size={18} aria-hidden="true" />
       </button>
@@ -306,7 +309,7 @@ export const SelectField = forwardRef(function SelectField(
                   onMouseEnter={() => setActiveIndex(index)}
                   onClick={() => emitValue(option.value)}
                 >
-                  <span>{option.label}</span>
+                  <span>{renderOption ? renderOption(option) : option.label}</span>
                   {selected ? <Check size={16} aria-hidden="true" /> : null}
                 </button>
               );
