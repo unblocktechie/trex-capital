@@ -47,17 +47,19 @@
     "rpcUrlEnv": "ARBITRUM_RPC_URL",
     "deployerPrivateKeyEnv": "DEPLOYER_PRIVATE_KEY",
     "paymentTokenAddresses": [
-      "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+      "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "0x004B506865409877C9fA29bfb1ebA929984B9bbC"
     ],
     "platformOwnerAddress": "DEPLOYER_ADDRESS",
-    "explorerBrowserUrl": "https://arbiscan.io",
-    "explorerApiKeyEnv": "ARBITRUM_EXPLORER_API_KEY"
+    "explorerBrowserUrl": "https://arbiscan.io"
   },
   "robinhood": {
     "chainId": 4663,
     "rpcUrlEnv": "ROBINHOOD_RPC_URL",
     "deployerPrivateKeyEnv": "DEPLOYER_PRIVATE_KEY",
-    "paymentTokenAddresses": [],
+    "paymentTokenAddresses": [
+      "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+    ],
     "platformOwnerAddress": "DEPLOYER_ADDRESS",
     "explorerApiUrl": "https://robinhoodchain.blockscout.com/api",
     "explorerBrowserUrl": "https://robinhoodchain.blockscout.com",
