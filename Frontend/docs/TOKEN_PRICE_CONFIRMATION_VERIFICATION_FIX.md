@@ -4,7 +4,7 @@
 
 A newly deployed token could reach **Token created — price confirmation needs attention** even when the Platform Controller `setPrice(token, newPrice)` transaction itself was valid and the controller did not report a revert.
 
-The deployment page first calls `getPlatformTokenPrice()` to determine whether a price transaction is needed. That read path reused `paymentTokenMetadata()`, which requires the backend `/payment-tokens` catalogue and a saved `paymentTokenAddress`. During token finalization those backend/payment-token fields can still be incomplete even though reading `tokenPrice(token)` only requires the Platform Controller and token contract. The frontend therefore converted a non-price metadata failure into the generic “current price could not be verified” deployment error.
+The deployment page first calls `getPlatformTokenPrice()` to determine whether a price transaction is needed. That read path reused `paymentTokenMetadata()`, which requires selected-chain payment-token metadata and a saved `paymentTokenAddress`. During token finalization those backend/payment-token fields can still be incomplete even though reading `tokenPrice(token)` only requires the Platform Controller and token contract. The frontend therefore converted a non-price metadata failure into the generic “current price could not be verified” deployment error.
 
 There was also a small race after a successful `setPrice` receipt: an immediate `tokenPrice` read using a load-balanced RPC could be served by a replica that was briefly behind the receipt-serving replica.
 

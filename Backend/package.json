@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
+    "chain:bootstrap": "node scripts/bootstrap-chain-secrets.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "check": "node scripts/check-syntax.js",

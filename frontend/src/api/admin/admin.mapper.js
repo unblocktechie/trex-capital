@@ -50,7 +50,7 @@ const mapWallet = (data) => {
       data?.organizationWalletNetwork,
       data?.organizationWallet?.network,
       data?.wallet?.network,
-      address ? 'Sepolia' : '',
+      address ? 'Configured network' : '',
     ),
     provider: text(data?.walletProvider, data?.organizationWallet?.provider, data?.wallet?.provider),
     connectedAt: first(

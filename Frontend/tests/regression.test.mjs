@@ -3,6 +3,7 @@ import test from 'node:test';
 import { beneficialOwnerSchema, beneficialOwnersSchema } from '../src/validations/organization.schemas.js';
 import { complianceSchema } from '../src/validations/investor.schemas.js';
 import { mapTokenForm, toCompliancePayload } from '../src/api/tokens/token.mapper.js';
+import { mapMarketplaceToken } from '../src/api/investments/investment.mapper.js';
 import {
   buildReviewChecklist,
   validateCompliance,
@@ -206,4 +207,26 @@ test('backend step progression preserves saved-image authority when image blob i
 
   assert.equal(mapped.completedSteps.includes('token-information'), true);
   assert.equal(mapped.server.imageAvailable, true);
+});
+
+
+test('marketplace mapping preserves nested token and selected-chain payment context', () => {
+  const mapped = mapMarketplaceToken({
+    tokenUid: 'token-1',
+    chainUid: 'chain-1',
+    chainId: 46630,
+    tokenInformation: {
+      tokenName: 'HoodBird',
+      tokenSymbol: 'HBIRD',
+      paymentTokenAddress: '0x0000000000000000000000000000000000000002',
+      paymentTokenSymbol: 'USDG',
+    },
+  });
+
+  assert.equal(mapped.name, 'HoodBird');
+  assert.equal(mapped.symbol, 'HBIRD');
+  assert.equal(mapped.chainUid, 'chain-1');
+  assert.equal(mapped.chainId, 46630);
+  assert.equal(mapped.paymentTokenAddress, '0x0000000000000000000000000000000000000002');
+  assert.equal(mapped.currency, 'USDG');
 });

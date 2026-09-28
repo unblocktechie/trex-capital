@@ -1,7 +1,7 @@
 import { CheckCircle2, Network, WalletCards } from 'lucide-react';
 import { WalletControl } from '@/components/wallet/WalletControl';
 
-export function WalletCard({ wallet }) {
+export function WalletCard({ wallet, requiredChainId }) {
   if (!wallet.isConnected) {
     return (
       <div className="investor-wallet-card investor-wallet-card--empty">
@@ -10,7 +10,7 @@ export function WalletCard({ wallet }) {
           <strong>Connect your primary investor wallet</strong>
           <p>The connected wallet will be verified and linked to the investor profile.</p>
         </div>
-        <WalletControl context="investor" prominent expanded />
+        <WalletControl context="investor" prominent expanded requiredChainId={requiredChainId} />
       </div>
     );
   }
@@ -23,10 +23,20 @@ export function WalletCard({ wallet }) {
           <small>Primary investor wallet</small>
           <strong title={wallet.address}>{wallet.displayAddress}</strong>
         </div>
-        <em className={wallet.isCorrectNetwork ? 'is-ready' : 'is-warning'}>
-          <CheckCircle2 size={14} />
-          {wallet.isCorrectNetwork ? 'Ready' : 'Switch network'}
-        </em>
+        {wallet.isCorrectNetwork ? (
+          <em className="is-ready">
+            <CheckCircle2 size={14} /> Ready
+          </em>
+        ) : (
+          <button
+            type="button"
+            className="is-warning"
+            onClick={() => window.dispatchEvent(new CustomEvent('trex:open-wallet-control', { detail: { context: 'investor' } }))}
+            aria-label="Switch investor wallet network"
+          >
+            <Network size={14} /> Switch network
+          </button>
+        )}
       </div>
 
       <dl>

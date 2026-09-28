@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { AGENT_ROLES, TOKEN_ISSUANCE_STEPS } from '@/config/tokenIssuance';
 import { web3Config } from '@/config/web3';
 import { useAuthStore } from '@/store/auth.store';
+import { useNetworkStore } from '@/store/network.store';
 
 const LEGACY_TOKEN_DRAFT_STORAGE_KEY = 'trex-token-issuance-draft';
 
@@ -26,8 +27,15 @@ const createInitialAgents = () =>
     return result;
   }, {});
 
+const preferredChainRecord = () => {
+  const user = useAuthStore.getState().user;
+  const chainId = useNetworkStore.getState().getActiveChainId(user);
+  return web3Config.getChainRecordById(chainId) || web3Config.defaultChainRecord;
+};
+
 const createBackendState = () => ({
   hydrated: false,
+  chainUid: '',
   loading: false,
   error: '',
   tokenUid: '',
@@ -40,18 +48,24 @@ const createBackendState = () => ({
   lastSavedAt: null,
   claimTopicOptions: [],
   countryOptions: [],
+  governanceNeedsSync: false,
+  governanceSyncError: '',
 });
 
-export const createInitialTokenIssuanceState = () => ({
+export const createInitialTokenIssuanceState = () => {
+  const initialChain = preferredChainRecord();
+  return ({
   tokenInformation: {
     logo: null,
+    chainUid: initialChain?.chainUid || '',
+    chainId: initialChain?.chainId || null,
     name: '',
     symbol: '',
     decimals: '',
     assetClass: '',
     description: '',
     treasuryWallet: '',
-    network: web3Config.requiredChain.name,
+    network: initialChain?.chainName || '',
     externalReference: '',
     legalIdentifier: '',
   },
@@ -60,6 +74,7 @@ export const createInitialTokenIssuanceState = () => ({
     initialPrice: '',
     currency: '',
     paymentTokenAddress: '',
+    paymentTokenDecimals: null,
     controllerAddress: '',
     paymentTokenLocked: false,
     minimumInvestment: '',
@@ -80,7 +95,7 @@ export const createInitialTokenIssuanceState = () => ({
       address: '',
       claimTopics: [],
       verificationStatus: 'Organization verified',
-      network: web3Config.requiredChain.name,
+      network: initialChain?.chainName || '',
       role: 'Trusted claim issuer',
     },
   },
@@ -120,6 +135,7 @@ export const createInitialTokenIssuanceState = () => ({
   backend: createBackendState(),
   updatedAt: null,
 });
+};
 
 const stepIndex = (stepKey) => TOKEN_ISSUANCE_STEPS.findIndex((step) => step.key === stepKey);
 
@@ -171,6 +187,7 @@ export const useTokenIssuanceStore = create((set, get) => ({
         values = {
           ...values,
           paymentTokenAddress: state.supplyPricing.paymentTokenAddress,
+          paymentTokenDecimals: state.supplyPricing.paymentTokenDecimals,
           controllerAddress: state.supplyPricing.controllerAddress,
           currency: state.supplyPricing.currency,
           paymentTokenLocked: true,
@@ -302,7 +319,7 @@ export const useTokenIssuanceStore = create((set, get) => ({
   setBackendState: (values) =>
     set((state) => ({ backend: { ...state.backend, ...values } })),
 
-  hydrateFromBackend: (mapped) =>
+  hydrateFromBackend: (mapped, selectedChainUid = '') =>
     set(() => {
       const optionTopics = mapped?.options?.claimTopics || [];
       const countryOptions = mapped?.countries || [];
@@ -337,6 +354,7 @@ export const useTokenIssuanceStore = create((set, get) => ({
           backend: {
             ...createBackendState(),
             hydrated: true,
+            chainUid: String(selectedChainUid || '').trim(),
             claimTopicOptions: optionTopics,
             countryOptions,
           },
@@ -347,14 +365,28 @@ export const useTokenIssuanceStore = create((set, get) => ({
       const nextClaims = (mapped.identityClaims?.claimTopics || optionTopics).map((topic) => ({
         ...topic,
       }));
+      const mappedTokenInformation = mapped.tokenInformation || {};
+      const mappedChainUid = String(mappedTokenInformation.chainUid || '').trim();
+      const mappedChainId = Number(mappedTokenInformation.chainId) || null;
+      const chainFromUid = mappedChainUid
+        ? web3Config.getChainRecordByUid(mappedChainUid)
+        : null;
+      const chainFromId = mappedChainId
+        ? web3Config.getChainRecordById(mappedChainId)
+        : null;
+      const resolvedChain = chainFromUid || chainFromId;
 
       return {
         tokenInformation: {
           ...initial.tokenInformation,
-          ...(mapped.tokenInformation || {}),
-          logo: mapped.tokenInformation?.logo || mapped.logo || null,
-          network:
-            mapped.tokenInformation?.network || web3Config.requiredChain.name,
+          ...mappedTokenInformation,
+          logo: mappedTokenInformation.logo || mapped.logo || null,
+          // Never use the platform default for an existing backend token. If the
+          // backend only returns chainUid, reconstruct chainId from the live chain
+          // catalogue; if both are present, chainUid remains authoritative.
+          chainUid: mappedChainUid || resolvedChain?.chainUid || '',
+          chainId: chainFromUid?.chainId || mappedChainId || null,
+          network: mappedTokenInformation.network || resolvedChain?.chainName || '',
         },
         supplyPricing: {
           ...initial.supplyPricing,
@@ -390,6 +422,7 @@ export const useTokenIssuanceStore = create((set, get) => ({
           ...createBackendState(),
           ...mapped.server,
           hydrated: true,
+          chainUid: String(selectedChainUid || '').trim(),
           isLocked,
           claimTopicOptions: optionTopics,
           countryOptions,
@@ -411,6 +444,9 @@ export const useTokenIssuanceStore = create((set, get) => ({
           stepKey === 'token-information' || state.backend.imageAvailable,
         lastSavedStep: stepKey,
         lastSavedAt: new Date().toISOString(),
+        ...(stepKey === 'agents'
+          ? { governanceNeedsSync: false, governanceSyncError: '' }
+          : {}),
         error: '',
       },
     })),
@@ -426,7 +462,7 @@ export const useTokenIssuanceStore = create((set, get) => ({
       tokenInformation: {
         ...state.tokenInformation,
         treasuryWallet: state.tokenInformation.treasuryWallet || address,
-        network: state.tokenInformation.network || web3Config.requiredChain.name,
+        network: state.tokenInformation.network || web3Config.requiredChain?.name || '',
       },
       supplyPricing: {
         ...state.supplyPricing,
@@ -439,7 +475,7 @@ export const useTokenIssuanceStore = create((set, get) => ({
           ...state.identityClaims.trustedIssuer,
           address: state.identityClaims.trustedIssuer.address || address,
           network:
-            state.identityClaims.trustedIssuer.network || web3Config.requiredChain.name,
+            state.identityClaims.trustedIssuer.network || web3Config.requiredChain?.name || '',
         },
       },
       agents: agentUpdates,

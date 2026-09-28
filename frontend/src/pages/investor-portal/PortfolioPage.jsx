@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router-dom';
 import { formatUnits } from 'viem';
 import { portfolioAssetKey } from '@/utils/portfolioAssetKey';
 import { CurrencyAmount } from '@/components/common/CurrencyAmount';
+import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import { InvestorHistoryPagination } from '@/components/investor-marketplace/InvestorHistoryPagination';
 import { MarketplaceTokenImage } from '@/components/investor-marketplace/MarketplaceTokenImage';
 import { Button } from '@/components/ui/Button';
@@ -91,6 +92,39 @@ const formatScaledDecimal = (signedValue, scale, maximumFractionDigits = 2) => {
   const fraction = resolvedScale ? String(absolute % divisor).padStart(resolvedScale, '0') : '';
   const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return `${negative ? '-' : ''}${grouped}${resolvedScale ? `.${fraction}` : ''}`;
+};
+
+// Preserve every decimal place supplied by the API/on-chain calculation for financial
+// summary values. This intentionally never converts through Number and never rounds.
+const formatScaledDecimalExact = (signedValue, scale) => {
+  const negative = signedValue < 0n;
+  const absolute = negative ? -signedValue : signedValue;
+  const divisor = pow10(scale);
+  const whole = scale ? absolute / divisor : absolute;
+  const rawFraction = scale ? String(absolute % divisor).padStart(scale, '0') : '';
+  const fraction = rawFraction.replace(/0+$/, '');
+  const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${negative ? '-' : ''}${grouped}${fraction ? `.${fraction}` : ''}`;
+};
+
+const sumDecimalValuesExact = (values) => {
+  const parts = values.map(decimalParts).filter(Boolean);
+  if (!parts.length) return null;
+  const scale = Math.max(...parts.map((part) => part.scale));
+  const total = parts.reduce((sum, part) => {
+    const scaled = part.digits * pow10(scale - part.scale);
+    return sum + (part.negative ? -scaled : scaled);
+  }, 0n);
+  return formatScaledDecimalExact(total, scale);
+};
+
+const multiplyDecimalValuesExact = (left, right) => {
+  const leftParts = decimalParts(left);
+  const rightParts = decimalParts(right);
+  if (!leftParts || !rightParts) return null;
+  const sign = leftParts.negative !== rightParts.negative ? -1n : 1n;
+  const product = leftParts.digits * rightParts.digits * sign;
+  return formatScaledDecimalExact(product, leftParts.scale + rightParts.scale);
 };
 
 const sumDecimalValues = (values, maximumFractionDigits = 2) => {
@@ -312,7 +346,7 @@ export default function PortfolioPage() {
         const currentPrice = platformPrices[portfolioAssetKey(token)]?.status === 'ready'
           ? platformPrices[portfolioAssetKey(token)].value
           : '';
-        const walletValue = multiplyDecimalValues(balanceState.balance, currentPrice, 2);
+        const walletValue = multiplyDecimalValuesExact(balanceState.balance, currentPrice);
         if (walletValue !== null) {
           walletValues.push(walletValue);
           pricedBalances += 1;
@@ -321,11 +355,11 @@ export default function PortfolioPage() {
     });
 
     return {
-      totalInvested: singleCurrency ? sumDecimalValues(investedValues, 2) : null,
+      totalInvested: singleCurrency ? sumDecimalValuesExact(investedValues) : null,
       currency,
       mixedCurrencies: !singleCurrency && items.length > 0,
       estimatedWalletValue: singleCurrency && pricedBalances === items.length && items.length
-        ? sumDecimalValues(walletValues, 2)
+        ? sumDecimalValuesExact(walletValues)
         : null,
       purchaseCount,
       verifiedBalances,
@@ -344,6 +378,13 @@ export default function PortfolioPage() {
     setBalanceRefreshKey((value) => value + 1);
     loadPortfolio({ quiet: true });
   };
+
+  const estimatedCurrentValueLabel = overview.estimatedWalletValue === null
+    ? ''
+    : `${overview.estimatedWalletValue} ${overview.currency}`.trim();
+  const totalInvestedLabel = overview.totalInvested === null
+    ? ''
+    : `${overview.totalInvested} ${overview.currency}`.trim();
 
   return (
     <div className="page-stack investor-portfolio-page">
@@ -382,7 +423,14 @@ export default function PortfolioPage() {
           <span className="investor-portfolio-summary__icon"><WalletCards size={20} /></span>
           <div>
             <span>Estimated current value</span>
-            <strong>{loading || overview.estimatedWalletValue === null ? '—' : <CurrencyAmount symbol={overview.currency}>{overview.estimatedWalletValue}</CurrencyAmount>}</strong>
+            <strong
+              className="investor-portfolio-summary__precise-amount"
+              data-tooltip={!loading && estimatedCurrentValueLabel ? `Exact value: ${estimatedCurrentValueLabel}` : undefined}
+              tabIndex={!loading && estimatedCurrentValueLabel ? 0 : undefined}
+              aria-label={!loading && estimatedCurrentValueLabel ? `Estimated current value. Exact value ${estimatedCurrentValueLabel}` : undefined}
+            >
+              {loading || overview.estimatedWalletValue === null ? '—' : <CurrencyAmount symbol={overview.currency}>{overview.estimatedWalletValue}</CurrencyAmount>}
+            </strong>
             <small>{loading ? 'Checking live balances' : `Live balance × current price, ${summaryScope}`}</small>
           </div>
         </Card>
@@ -390,7 +438,14 @@ export default function PortfolioPage() {
           <span className="investor-portfolio-summary__icon"><Banknote size={20} /></span>
           <div>
             <span>Total invested</span>
-            <strong>{loading || overview.totalInvested === null ? '—' : <CurrencyAmount symbol={overview.currency}>{overview.totalInvested}</CurrencyAmount>}</strong>
+            <strong
+              className="investor-portfolio-summary__precise-amount"
+              data-tooltip={!loading && totalInvestedLabel ? `Exact value: ${totalInvestedLabel}` : undefined}
+              tabIndex={!loading && totalInvestedLabel ? 0 : undefined}
+              aria-label={!loading && totalInvestedLabel ? `Total invested. Exact value ${totalInvestedLabel}` : undefined}
+            >
+              {loading || overview.totalInvested === null ? '—' : <CurrencyAmount symbol={overview.currency}>{overview.totalInvested}</CurrencyAmount>}
+            </strong>
             <small>{overview.mixedCurrencies ? 'Different payment tokens; see individual asset amounts below.' : `Completed purchases ${summaryScope}`}</small>
           </div>
         </Card>
@@ -498,7 +553,7 @@ export default function PortfolioPage() {
                         {currentPriceState.status === 'loading'
                           ? 'Checking…'
                           : currentPrice
-                            ? `${settlementAmount(currentPrice, 18)} ${paymentSymbol}`
+                            ? <TokenPriceValue value={currentPrice} suffix={` ${paymentSymbol}`} />
                             : 'Unavailable'}
                       </strong>
                       {currentPriceState.status === 'ready' ? null : (
@@ -507,7 +562,7 @@ export default function PortfolioPage() {
                       <small>
                         Initial price{' '}
                         {resolveInitialTokenPriceExact(token)
-                          ? `${settlementAmount(resolveInitialTokenPriceExact(token), 18)} ${paymentSymbol}`
+                          ? <TokenPriceValue value={resolveInitialTokenPriceExact(token)} suffix={` ${paymentSymbol}`} />
                           : '—'}
                       </small>
                     </div>
@@ -520,7 +575,7 @@ export default function PortfolioPage() {
                       <small>
                         Avg. purchase{' '}
                         {portfolio.averagePurchasePrice
-                          ? `${settlementAmount(portfolio.averagePurchasePrice, 4)} ${paymentSymbol}`
+                          ? <TokenPriceValue value={portfolio.averagePurchasePrice} suffix={` ${paymentSymbol}`} />
                           : '—'}
                       </small>
                     </div>

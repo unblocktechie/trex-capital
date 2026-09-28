@@ -33,10 +33,12 @@ import {
 } from '@/components/investor-marketplace/MarketplaceModals';
 import { MarketplaceStatusBadge } from '@/components/investor-marketplace/MarketplaceStatusBadge';
 import { CurrencyAmount } from '@/components/common/CurrencyAmount';
+import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ROUTES } from '@/config/routes';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { usePaymentTokenMetadata } from '@/hooks/usePaymentTokenMetadata';
 import { investorMarketplaceService } from '@/services/investor/investorMarketplaceService';
 import { MARKETPLACE_STATUS } from '@/services/investor/investorMarketplaceLocalService';
 import { getErrorMessage } from '@/utils/error';
@@ -214,6 +216,14 @@ export default function MarketplaceTokenDetailsPage() {
   const [documentTypesLoading, setDocumentTypesLoading] = useState(false);
 
   useDocumentTitle(token ? `${token.name} · Marketplace` : 'Marketplace Offering');
+  const paymentToken = usePaymentTokenMetadata({
+    paymentTokenAddress: token?.paymentTokenAddress,
+    paymentTokenSymbol: token?.paymentTokenSymbol || token?.currency,
+    chainUid: token?.chainUid,
+    chainId: token?.chainId,
+    enabled: Boolean(token),
+  });
+  const paymentSymbol = paymentToken.symbol || token?.currency || '—';
 
   const loadOffering = async () => {
     const offering = await investorMarketplaceService.getOffering(tokenId);
@@ -393,8 +403,15 @@ export default function MarketplaceTokenDetailsPage() {
             <span className="marketplace-detail-section-label">Key investment details</span>
             <div className="marketplace-snapshot-grid marketplace-snapshot-grid--friendly">
               <SnapshotCard label="Price per unit" className="marketplace-snapshot-card--price">
-                {token.price == null ? '—' : (
-                  <CurrencyAmount symbol={token.currency || '—'}>${number.format(token.price)}</CurrencyAmount>
+                {(token.currentTokenPriceExact || token.price) == null ? '—' : (
+                  <CurrencyAmount
+                    symbol={paymentSymbol}
+                    name={paymentToken.name}
+                    imageUrl={paymentToken.imageUrl}
+                    useBuiltInIcon={false}
+                  >
+                    <TokenPriceValue value={token.currentTokenPriceExact || token.price} />
+                  </CurrencyAmount>
                 )}
               </SnapshotCard>
               <SnapshotCard label="Investor limit">{displayNumber(token.maxInvestors)}</SnapshotCard>

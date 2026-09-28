@@ -7,7 +7,6 @@ import {
   isAddress,
   parseUnits,
 } from 'viem';
-import { env } from '@/config/env';
 import { web3Config } from '@/config/web3';
 
 const ERC3643_TRANSFER_ABI = [
@@ -63,7 +62,7 @@ export const getInvestorTokenTransferErrorMessage = (error) => {
   }
 
   if (/insufficient funds.*gas|insufficient funds for intrinsic transaction cost/.test(text)) {
-    return 'Your registered wallet needs a small amount of Sepolia ETH to pay the network fee.';
+    return 'Your registered wallet needs enough native currency on the selected network to pay the network fee.';
   }
 
   if (/transfer not possible|transfer is not possible/.test(text)) {
@@ -159,7 +158,7 @@ async function activeRegisteredWallet({ connector, connectedAddress, investorWal
   return {
     chain,
     account: getAddress(providerAddress),
-    publicClient: createPublicClient({ chain, transport: http(env.web3.rpcUrl) }),
+    publicClient: createPublicClient({ chain, transport: http(web3Config.getChainRecordById(chain.id)?.publicRpcUrl) }),
     walletClient: createWalletClient({ account: getAddress(providerAddress), chain, transport: custom(provider) }),
   };
 }

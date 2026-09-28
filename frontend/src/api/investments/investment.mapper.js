@@ -184,6 +184,7 @@ export const mapMarketplaceToken = (raw = {}, { interest = null, eligibility = n
   const pricing = raw?.supplyPricing || raw?.pricing || {};
   const compliance = raw?.compliance || {};
   const organization = raw?.organization || raw?.issuer || raw?.company || {};
+  const paymentContext = paymentContextOf(raw);
   const companyName = typeof organization === 'string'
     ? organization
     : text(
@@ -233,16 +234,30 @@ export const mapMarketplaceToken = (raw = {}, { interest = null, eligibility = n
     tokenInformation?.price,
     initialTokenPriceExact,
   );
-  const initialTokenPrice = numberOrNull(initialTokenPriceExact);
-  const price = numberOrNull(currentTokenPriceExact, initialTokenPriceExact);
+  // Keep token prices as exact decimal strings. Converting them to Number here
+  // would irreversibly lose precision before any UI formatter can run.
+  const initialTokenPrice = initialTokenPriceExact || null;
+  const price = currentTokenPriceExact || initialTokenPriceExact || null;
   const requiredClaimTopics = array(raw?.requiredClaimTopics, raw?.claimTopics)
     .map((topic, index) => mapClaimTopic(topic, index));
 
   return {
     id: tokenUid,
     tokenUid,
-    name: text(raw?.name, raw?.tokenName, raw?.tokenDisplayName, tokenInformation?.name) || '—',
-    symbol: (text(raw?.symbol, raw?.tokenSymbol, raw?.ticker, tokenInformation?.symbol) || '—').toUpperCase(),
+    name: text(
+      raw?.name,
+      raw?.tokenName,
+      raw?.tokenDisplayName,
+      tokenInformation?.name,
+      tokenInformation?.tokenName,
+    ) || '—',
+    symbol: (text(
+      raw?.symbol,
+      raw?.tokenSymbol,
+      raw?.ticker,
+      tokenInformation?.symbol,
+      tokenInformation?.tokenSymbol,
+    ) || '—').toUpperCase(),
     decimals: numberOrNull(raw?.decimals, tokenInformation?.decimals),
     price,
     currentTokenPrice: price,
@@ -250,12 +265,24 @@ export const mapMarketplaceToken = (raw = {}, { interest = null, eligibility = n
     currentPrice: price,
     initialTokenPrice,
     initialTokenPriceExact,
-    nav: numberOrNull(raw?.nav, raw?.netAssetValue, price),
+    nav: numberOrNull(raw?.nav, raw?.netAssetValue),
     initialPrice: initialTokenPrice,
-    ...paymentContextOf(raw),
-    currency: paymentContextOf(raw).paymentTokenSymbol || text(raw?.currency, pricing?.currency),
-    description: splitDescription(first(raw?.description, tokenInformation?.description)),
-    shortDescription: text(raw?.shortDescription, raw?.description, tokenInformation?.description, tokenInformation?.assetClass),
+    ...paymentContext,
+    currency: paymentContext.paymentTokenSymbol || text(raw?.currency, pricing?.currency),
+    description: splitDescription(first(
+      raw?.tokenDescription,
+      raw?.description,
+      tokenInformation?.tokenDescription,
+      tokenInformation?.description,
+    )),
+    shortDescription: text(
+      raw?.shortDescription,
+      raw?.tokenDescription,
+      raw?.description,
+      tokenInformation?.tokenDescription,
+      tokenInformation?.description,
+      tokenInformation?.assetClass,
+    ),
     issuer: companyName || '—',
     company: companyName || '—',
     legalCompanyName: companyName || '',
@@ -373,6 +400,14 @@ export const mapMarketplaceToken = (raw = {}, { interest = null, eligibility = n
       tokenInformation?.treasuryWalletAddress,
       tokenInformation?.treasuryAddress,
       pricing?.treasuryWalletAddress,
+    ),
+    chainUid: text(
+      raw?.chainUid,
+      raw?.networkChainUid,
+      tokenInformation?.chainUid,
+      raw?.network?.chainUid,
+      raw?.chain?.chainUid,
+      raw?.chain?.uid,
     ),
     chainId: numberOrNull(
       raw?.chainId,

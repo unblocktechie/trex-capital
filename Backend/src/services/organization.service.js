@@ -39,11 +39,13 @@ const isRegisteredIssuerWalletDuplicate = (error) => error?.code === 'ER_DUP_ENT
   && String(error.sqlMessage || error.message || '').includes('ukOrganizationMasterRegisteredWallet');
 
 class OrganizationService {
-  constructor({ repository, optionRepository, locationService, walletOwnershipRepository }) {
+  constructor({ repository, optionRepository, locationService, walletOwnershipRepository, chainRuntimeService = null, userChainIdentityService = null }) {
     this.repository = repository;
     this.optionRepository = optionRepository;
     this.locationService = locationService;
     this.walletOwnershipRepository = walletOwnershipRepository;
+    this.chainRuntimeService = chainRuntimeService;
+    this.userChainIdentityService = userChainIdentityService;
   }
 
   assertIssuer(user) {
@@ -72,7 +74,7 @@ class OrganizationService {
     return Number(organization?.rejectionCount || 0) > 0 ? 'resubmitted' : 'submitted';
   }
 
-  async getFullForm(user) {
+  async getFullForm(user, selectedChain = null) {
     this.assertIssuer(user);
     const organization = await this.repository.findByUserUid(user.userUid);
     if (!organization) return null;
@@ -80,7 +82,10 @@ class OrganizationService {
       this.repository.listBeneficialOwners(organization.organizationUid),
       this.repository.listDocuments(organization.organizationUid),
     ]);
-    return { ...organization, beneficialOwners, documents };
+    const selectedChainIdentity = selectedChain && this.userChainIdentityService
+      ? await this.userChainIdentityService.getForUser(user, selectedChain.chainUid)
+      : null;
+    return { ...organization, selectedChainIdentity, beneficialOwners, documents };
   }
 
   async markUserNotified(user) {
@@ -243,12 +248,19 @@ class OrganizationService {
     });
   }
 
-  async submit(user, { walletAddress }) {
+  async submit(user, { walletAddress, chainUid }, selectedChainContext = null) {
     this.assertIssuer(user);
     const organization = await this.repository.findByUserUid(user.userUid);
     if (!organization) throw ApiError.badRequest('Organization form has not been started.');
     this.assertEditable(organization);
     const normalizedWalletAddress = normalizeWalletAddress(walletAddress);
+    if (selectedChainContext && chainUid && chainUid !== selectedChainContext.chainUid) {
+      throw new ApiError(422, 'Onboarding chain does not match the selected network.', undefined, 'SELECTED_CHAIN_MISMATCH');
+    }
+    const authoritativeChainUid = selectedChainContext?.chainUid || chainUid;
+    const selectedChain = this.chainRuntimeService
+      ? (authoritativeChainUid ? await this.chainRuntimeService.byUid(authoritativeChainUid) : await this.chainRuntimeService.default())
+      : { chainUid: chainUid || null };
     const investorWalletOwner = await this.walletOwnershipRepository.findInvestorOwner(normalizedWalletAddress);
     if (investorWalletOwner) throw investorWalletConflictError();
     const issuerWalletOwner = await this.walletOwnershipRepository.findIssuerOwner(
@@ -278,6 +290,7 @@ class OrganizationService {
     try {
       return await this.repository.updateByUserUid(user.userUid, {
         walletAddress: normalizedWalletAddress,
+        ...(selectedChain.chainUid ? { onboardingChainUid: selectedChain.chainUid } : {}),
         currentStep: 'completed',
         isDraft: false,
         status: this.submissionStatus(organization),

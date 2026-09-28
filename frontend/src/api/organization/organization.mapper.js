@@ -170,6 +170,31 @@ export const mapOrganization = (data) => {
       data.organizationWallet?.address,
       data.wallet?.address,
     ),
+    chainUid: text(
+      data.chainUid,
+      data.organizationChainUid,
+      data.organizationWallet?.chainUid,
+      data.wallet?.chainUid,
+      data.chain?.chainUid,
+    ),
+    chainId: Number(
+      first(
+        data.chainId,
+        data.organizationChainId,
+        data.organizationWallet?.chainId,
+        data.wallet?.chainId,
+        data.chain?.chainId,
+        0,
+      ),
+    ) || null,
+    walletChainUid: text(
+      data.walletChainUid,
+      data.organizationWalletChainUid,
+      data.organizationWallet?.chainUid,
+      data.wallet?.chainUid,
+      data.chainUid,
+      data.chain?.chainUid,
+    ),
     walletChainId: Number(
       first(
         data.walletChainId,
@@ -185,6 +210,9 @@ export const mapOrganization = (data) => {
       data.organizationWallet?.network,
       data.wallet?.network,
     ),
+    // Keep the legacy organization contract address for backward-compatible
+    // backend records only. Chain-aware issuer UI and writes must use
+    // selectedChainIdentity.identityAddress instead.
     contractAddress: text(
       data.contractAddress,
       data.contractaddress,
@@ -200,6 +228,18 @@ export const mapOrganization = (data) => {
       data.wallet?.contractAddress,
       data.wallet?.contractaddress,
     ),
+    selectedChainIdentity: {
+      chainUid: text(data.selectedChainIdentity?.chainUid),
+      chainId: Number(first(data.selectedChainIdentity?.chainId, 0)) || null,
+      chainName: text(data.selectedChainIdentity?.chainName),
+      networkName: text(data.selectedChainIdentity?.networkName),
+      isUnlocked: flag(data.selectedChainIdentity?.isUnlocked),
+      identityStatus: text(data.selectedChainIdentity?.identityStatus).toUpperCase(),
+      identityAddress: text(data.selectedChainIdentity?.identityAddress),
+      identityTransactionHash: text(data.selectedChainIdentity?.identityTransactionHash),
+      identityErrorCode: text(data.selectedChainIdentity?.identityErrorCode),
+      identityErrorMessage: text(data.selectedChainIdentity?.identityErrorMessage),
+    },
     company: {
       legalName: text(data.legalCompanyName),
       entityType: text(data.entityTypeUid),

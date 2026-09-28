@@ -142,8 +142,8 @@ function StatusStep({ icon: Icon, label, value, active = false, complete = false
 export default function IssuerRedemptionDetailPage() {
   const { redemptionUid } = useParams();
   const navigate = useNavigate();
-  const wallet = useWalletConnection();
   const [redemption, setRedemption] = useState(null);
+  const wallet = useWalletConnection(redemption?.chainId);
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState('');
   const [decision, setDecision] = useState('');

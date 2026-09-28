@@ -86,25 +86,40 @@ export default function OrganizationOverviewPage() {
     : 'Verified';
   const incorporationDate = formatDate(jurisdiction.dateOfIncorporation);
   const organizationWallet = organization.walletAddress || '';
+  const selectedChainIdentity = organization.selectedChainIdentity || {};
+  const identityAddress = selectedChainIdentity.identityAddress || '';
+  const identityChain =
+    web3Config.getChainById(selectedChainIdentity.chainId) ||
+    web3Config.getChainById(
+      web3Config.getChainRecordByUid(selectedChainIdentity.chainUid)?.chainId,
+    ) ||
+    null;
   const walletChain = organizationWallet
     ? web3Config.supportedChains.find(
-        (chain) => chain.id === Number(organization.walletChainId),
+        (chain) => chain.id === Number(organization.walletChainId || organization.chainId),
       ) ||
       web3Config.supportedChains.find(
         (chain) => chain.name.toLowerCase() === organization.walletNetwork?.toLowerCase(),
       ) ||
-      web3Config.requiredChain
+      web3Config.getChainById(
+        web3Config.getChainRecordByUid(organization.walletChainUid || organization.chainUid)?.chainId,
+      ) ||
+      null
     : null;
+  const selectedChain = identityChain || walletChain;
   const walletNetworkName =
-    organization.walletNetwork || walletChain?.name || web3Config.requiredChain.name;
+    selectedChainIdentity.chainName ||
+    selectedChainIdentity.networkName ||
+    selectedChain?.name ||
+    organization.walletNetwork ||
+    'Configured network';
   const walletExplorerUrl =
-    organizationWallet && walletChain?.blockExplorers?.default?.url
-      ? `${walletChain.blockExplorers.default.url}/address/${organizationWallet}`
+    organizationWallet && selectedChain?.blockExplorers?.default?.url
+      ? `${selectedChain.blockExplorers.default.url}/address/${organizationWallet}`
       : '';
-  const contractAddress = organization.contractAddress || '';
-  const contractExplorerUrl =
-    contractAddress && walletChain?.blockExplorers?.default?.url
-      ? `${walletChain.blockExplorers.default.url}/address/${contractAddress}`
+  const identityExplorerUrl =
+    identityAddress && selectedChain?.blockExplorers?.default?.url
+      ? `${selectedChain.blockExplorers.default.url}/address/${identityAddress}`
       : '';
 
   const copyWalletAddress = async () => {
@@ -117,13 +132,13 @@ export default function OrganizationOverviewPage() {
     }
   };
 
-  const copyContractAddress = async () => {
-    if (!contractAddress) return;
+  const copyIdentityAddress = async () => {
+    if (!identityAddress) return;
     try {
-      await navigator.clipboard.writeText(contractAddress);
-      toast.success('Verification record copied');
+      await navigator.clipboard.writeText(identityAddress);
+      toast.success('Organization identity address copied');
     } catch {
-      toast.error('Unable to copy verification record');
+      toast.error('Unable to copy organization identity address');
     }
   };
 
@@ -292,20 +307,20 @@ export default function OrganizationOverviewPage() {
               <article className="org-wallet-card__contract">
                 <div className="org-wallet-card__contract-copy">
                   <span className="org-wallet-card__contract-label">
-                    <Fingerprint size={15} /> Organization verification record
+                    <Fingerprint size={15} /> Organization identity address
                   </span>
-                  <strong title={contractAddress || undefined}>
-                    {contractAddress || 'Not assigned yet'}
+                  <strong title={identityAddress || undefined}>
+                    {identityAddress || 'Not created on this network yet'}
                   </strong>
-                  <p>This blockchain record securely links the approved wallet to your verified organization.</p>
+                  <p>This ONCHAINID belongs to your verified organization on the selected network.</p>
                 </div>
-                {contractAddress ? (
+                {identityAddress ? (
                   <button
                     type="button"
                     className="org-wallet-card__copy-button org-wallet-card__copy-button--contract"
-                    onClick={copyContractAddress}
-                    aria-label="Copy organization verification record"
-                    title="Copy verification record"
+                    onClick={copyIdentityAddress}
+                    aria-label="Copy organization identity address"
+                    title="Copy organization identity address"
                   >
                     <Copy size={16} />
                   </button>
@@ -319,21 +334,21 @@ export default function OrganizationOverviewPage() {
               <small>Registered in</small>
               <b>{primaryJurisdiction}</b>
             </div>
-            {walletExplorerUrl || contractExplorerUrl ? (
+            {walletExplorerUrl || identityExplorerUrl ? (
               <div className="org-wallet-card__actions">
                 {walletExplorerUrl ? (
                   <a href={walletExplorerUrl} target="_blank" rel="noreferrer">
                     <ExternalLink size={15} /> View on blockchain
                   </a>
                 ) : null}
-                {contractExplorerUrl ? (
+                {identityExplorerUrl ? (
                   <a
                     className="org-wallet-card__action--contract"
-                    href={contractExplorerUrl}
+                    href={identityExplorerUrl}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <ExternalLink size={15} /> View verification record
+                    <ExternalLink size={15} /> View organization identity
                   </a>
                 ) : null}
               </div>

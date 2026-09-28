@@ -7,16 +7,32 @@ export const shortenWalletAddress = (address, leading = 5, trailing = 5) => {
   return `${address.slice(0, leading)}...${address.slice(-trailing)}`;
 };
 
-export const formatWalletBalance = (balance, maximumFractionDigits = 4) => {
-  if (!balance?.value && balance?.value !== 0n) return '—';
+const EVM_NATIVE_BALANCE_DECIMALS = 18;
 
-  const numeric = Number(formatUnits(balance.value, balance.decimals));
-  if (!Number.isFinite(numeric)) return `— ${balance.symbol || ''}`.trim();
+const formatReadableAmount = (value, decimals, symbol, maximumFractionDigits = 4) => {
+  const numeric = Number(formatUnits(value, decimals));
+  if (!Number.isFinite(numeric)) return `— ${symbol || ''}`.trim();
 
   return `${numeric.toLocaleString('en-US', {
     minimumFractionDigits: 0,
     maximumFractionDigits,
-  })} ${balance.symbol || ''}`.trim();
+  })} ${symbol || ''}`.trim();
+};
+
+/**
+ * Native EVM balances returned by eth_getBalance are wei-denominated.
+ * Keep the RPC balance conversion independent from ERC-20/token display
+ * decimals so chains that use a stablecoin symbol for gas (for example USDC)
+ * do not inflate a 20-unit native balance into trillions on screen.
+ */
+export const formatNativeWalletBalance = (value, symbol, maximumFractionDigits = 4) => {
+  if (value === undefined || value === null) return '—';
+  return formatReadableAmount(value, EVM_NATIVE_BALANCE_DECIMALS, symbol, maximumFractionDigits);
+};
+
+export const formatWalletBalance = (balance, maximumFractionDigits = 4) => {
+  if (!balance?.value && balance?.value !== 0n) return '—';
+  return formatNativeWalletBalance(balance.value, balance.symbol, maximumFractionDigits);
 };
 
 export const getWalletErrorMessage = (error, fallback = 'Wallet request could not be completed.') => {
@@ -39,7 +55,7 @@ export const getWalletErrorMessage = (error, fallback = 'Wallet request could no
     return 'The MetaMask browser extension is not available to this tab. Reconnect the wallet and try again.';
   }
   if (/project id|projectid/i.test(message)) {
-    return 'WalletConnect is not configured. Add VITE_WALLETCONNECT_PROJECT_ID to the environment file.';
+    return 'Wallet connection is temporarily unavailable. Please use an available wallet option or try again later.';
   }
   if (
     /contract function .*reverted|contractfunctionrevertederror|rpc request|transaction gas limit|gas limit too high|exceeds.*gas limit|cannot estimate gas|execution reverted|contract call:|docs:\s*https?:\/\//i.test(

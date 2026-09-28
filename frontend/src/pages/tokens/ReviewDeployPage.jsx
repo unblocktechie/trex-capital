@@ -15,10 +15,14 @@ import {
   UsersRound,
   XCircle,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { tokenApi } from '@/api/tokens';
+import { toGovernancePayload } from '@/api/tokens/token.mapper';
 import { DeploymentConfirmationModal } from '@/components/token-issuance/DeploymentConfirmationModal';
+import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import {
   AddressDisplay,
   InfoCallout,
@@ -30,18 +34,24 @@ import { WalletControl } from '@/components/wallet/WalletControl';
 import { TOKEN_CREATION_AGENT_ROLES, TOKEN_ISSUANCE_STEPS } from '@/config/tokenIssuance';
 import { ROUTES } from '@/config/routes';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { chainConfigQueryOptions } from '@/hooks/useChains';
+import { useOrganization } from '@/hooks/useOrganization';
 import { useWalletConnection } from '@/hooks/useWalletConnection';
 import { pendingDeploymentService } from '@/services/pendingDeployment.service';
 import { useAuthStore } from '@/store/auth.store';
+import { networkUserKey, useNetworkStore } from '@/store/network.store';
 import { useTokenIssuanceStore } from '@/store/tokenIssuance.store';
+import { web3Config } from '@/config/web3';
 import { cn } from '@/utils/cn';
+import { getErrorMessage } from '@/utils/error';
 import {
   buildReviewChecklist,
-  formatMoney,
   formatNumber,
   hasBlockingReviewErrors,
 } from '@/utils/tokenIssuance';
+import { getTokenApiErrorMessage } from '@/utils/tokenApiValidation';
 import { getWalletErrorMessage } from '@/utils/wallet';
+import { buildTokenIssuanceNetworkMismatchMessage } from '@/utils/tokenIssuanceNetwork';
 
 const statusIcons = {
   valid: CheckCircle2,
@@ -90,9 +100,30 @@ function DetailItem({ label, children, full = false }) {
 
 export default function ReviewDeployPage() {
   const navigate = useNavigate();
-  const wallet = useWalletConnection();
+  const queryClient = useQueryClient();
   const authUser = useAuthStore((state) => state.user);
   const tokenInformation = useTokenIssuanceStore((state) => state.tokenInformation);
+  const networkKey = networkUserKey(authUser);
+  const selectedChainId = useNetworkStore((state) => state.activeChainByUser[networkKey] || null);
+  const selectedChainUid = useNetworkStore((state) => state.activeChainUidByUser[networkKey] || '');
+  const setActiveChainId = useNetworkStore((state) => state.setActiveChainId);
+  const assetChainUid = String(
+    tokenInformation.chainUid ||
+      web3Config.getChainRecordById(tokenInformation.chainId)?.chainUid ||
+      '',
+  ).trim();
+  const assetChainId =
+    Number(tokenInformation.chainId) ||
+    Number(web3Config.getChainRecordByUid(assetChainUid)?.chainId) ||
+    null;
+  const resolvedSelectedChainUid = String(
+    selectedChainUid || web3Config.getChainRecordById(selectedChainId)?.chainUid || '',
+  ).trim();
+  const assetChainMismatch = Boolean(
+    assetChainUid && resolvedSelectedChainUid && assetChainUid !== resolvedSelectedChainUid,
+  );
+  const { organization } = useOrganization({ enabled: !assetChainMismatch });
+  const wallet = useWalletConnection(tokenInformation.chainId);
   const supplyPricing = useTokenIssuanceStore((state) => state.supplyPricing);
   const identityClaims = useTokenIssuanceStore((state) => state.identityClaims);
   const compliance = useTokenIssuanceStore((state) => state.compliance);
@@ -101,15 +132,21 @@ export default function ReviewDeployPage() {
   const deployment = useTokenIssuanceStore((state) => state.deployment);
   const backend = useTokenIssuanceStore((state) => state.backend);
   const setDeployment = useTokenIssuanceStore((state) => state.setDeployment);
+  const setBackendState = useTokenIssuanceStore((state) => state.setBackendState);
+  const hydrateWalletDefaults = useTokenIssuanceStore((state) => state.hydrateWalletDefaults);
+  const recordBackendSave = useTokenIssuanceStore((state) => state.recordBackendSave);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [startingDeployment, setStartingDeployment] = useState(false);
+  const [syncingGovernance, setSyncingGovernance] = useState(false);
+  const [switchingAssetChain, setSwitchingAssetChain] = useState(false);
+  const governanceRepairAttemptedRef = useRef('');
   const state = useMemo(
     () => ({ tokenInformation, supplyPricing, identityClaims, compliance, agents }),
     [agents, compliance, identityClaims, supplyPricing, tokenInformation],
   );
-  const checks = buildReviewChecklist(state, wallet, tokenInformation.treasuryWallet, {
-    imageAvailable: backend.imageAvailable,
-  });
+  const approvedOrganizationWallet = String(
+    organization?.walletAddress || tokenInformation.treasuryWallet || '',
+  ).trim();
   const normalizedBackendStatus = String(backend.status || '')
     .toLowerCase()
     .replace(/[^a-z]/g, '');
@@ -123,6 +160,18 @@ export default function ReviewDeployPage() {
   const isConfigurationFailed = normalizedBackendStatus === 'configurationfailed';
   const isDeploymentFailed = normalizedBackendStatus === 'deploymentfailed';
   const isDeployed = ['deployed', 'completed', 'active'].includes(normalizedBackendStatus);
+  const normalizedBackendStep = String(backend.currentStep || '')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+  const managementStepCompleted =
+    completedSteps.includes('agents') || ['review', 'deploy', 'deployment'].includes(normalizedBackendStep);
+  const checks = buildReviewChecklist(state, wallet, approvedOrganizationWallet, {
+    imageAvailable: backend.imageAvailable,
+    managementStepCompleted,
+  });
+  const governanceNeedsSync = Boolean(
+    backend.governanceNeedsSync && managementStepCompleted && approvedOrganizationWallet,
+  );
   const blocking = hasBlockingReviewErrors(checks) || isDeployed;
   const firstBlockingCheck = checks.find(
     (check) => check.status === 'error' || check.status === 'pending',
@@ -135,12 +184,111 @@ export default function ReviewDeployPage() {
   const accredited = identityClaims.claimTopics.find((topic) => topic.id === 'accredited');
   const enabledClaims = identityClaims.claimTopics.filter((topic) => topic.enabled);
   const networkLabel =
-    wallet.requiredChain?.name || tokenInformation.network || 'Sepolia Testnet';
+    wallet.requiredChain?.name || tokenInformation.network || 'Selected network';
   const connectedNetworkLabel = wallet.isConnected
     ? wallet.chain?.name ||
       `Unsupported network${wallet.chainId ? ` (Chain ID ${wallet.chainId})` : ''}`
     : 'No network connected';
   useDocumentTitle('Review & Create');
+
+  // Restore the read-only management-role values after a hard refresh or logout/login.
+  // Some draft responses at Review omit the duplicated governance fields even though the
+  // Management step is already complete.
+  useEffect(() => {
+    if (!approvedOrganizationWallet) return;
+    hydrateWalletDefaults(approvedOrganizationWallet);
+  }, [approvedOrganizationWallet, hydrateWalletDefaults]);
+
+  const persistReviewGovernance = useCallback(
+    async ({ silent = false } = {}) => {
+      if (assetChainMismatch || !governanceNeedsSync) return true;
+      if (!approvedOrganizationWallet || syncingGovernance) return false;
+
+      setSyncingGovernance(true);
+      try {
+        const response = await tokenApi.saveGovernance(
+          toGovernancePayload(
+            {
+              tokenAgent: { address: approvedOrganizationWallet },
+              identityRegistryAgent: { address: approvedOrganizationWallet },
+            },
+            false,
+          ),
+        );
+        recordBackendSave('agents', response);
+        hydrateWalletDefaults(approvedOrganizationWallet);
+        setBackendState({ governanceNeedsSync: false, governanceSyncError: '' });
+        return true;
+      } catch (error) {
+        const message = getTokenApiErrorMessage(
+          error,
+          'The completed management assignment could not be restored. Please try again.',
+        );
+        setBackendState({ governanceSyncError: message });
+        if (!silent) {
+          toast.error('Asset management access could not be restored.', { description: message });
+        }
+        return false;
+      } finally {
+        setSyncingGovernance(false);
+      }
+    },
+    [
+      approvedOrganizationWallet,
+      assetChainMismatch,
+      governanceNeedsSync,
+      hydrateWalletDefaults,
+      recordBackendSave,
+      setBackendState,
+      syncingGovernance,
+    ],
+  );
+
+  useEffect(() => {
+    if (assetChainMismatch || !governanceNeedsSync || !approvedOrganizationWallet) return;
+    const repairKey = `${backend.tokenUid || 'draft'}:${approvedOrganizationWallet.toLowerCase()}`;
+    if (governanceRepairAttemptedRef.current === repairKey) return;
+    governanceRepairAttemptedRef.current = repairKey;
+    void persistReviewGovernance({ silent: true });
+  }, [
+    approvedOrganizationWallet,
+    assetChainMismatch,
+    backend.tokenUid,
+    governanceNeedsSync,
+    persistReviewGovernance,
+  ]);
+
+  const switchToAssetChain = async () => {
+    if (!authUser || !assetChainUid || !assetChainId || switchingAssetChain) return;
+
+    setSwitchingAssetChain(true);
+    try {
+      // Validate/cache the browser-safe runtime config once before changing app
+      // context. Per-chain query keys then activate naturally; we deliberately do
+      // not invalidate every mounted query on the page.
+      await queryClient.fetchQuery(chainConfigQueryOptions(assetChainUid));
+      setActiveChainId(authUser, assetChainId, assetChainUid);
+
+      if (wallet.isConnected && wallet.chainId !== assetChainId) {
+        try {
+          await wallet.switchChain(assetChainId);
+        } catch (error) {
+          toast.warning('Asset network selected', {
+            description: `${getWalletErrorMessage(error)} You can retry the wallet switch from the review page.`,
+          });
+          return;
+        }
+      }
+
+      toast.success(`Switched to ${tokenInformation.network || wallet.requiredChain?.name || 'asset network'}`);
+    } catch (error) {
+      toast.error('Unable to switch network', {
+        description: getErrorMessage(error, 'The asset network could not be loaded. Please try again.'),
+      });
+    } finally {
+      setSwitchingAssetChain(false);
+    }
+  };
 
   const switchToRequiredNetwork = async () => {
     if (!wallet.isConnected || wallet.isCorrectNetwork || wallet.isBusy) return;
@@ -159,7 +307,7 @@ export default function ReviewDeployPage() {
     }
   };
 
-  const openDeployment = () => {
+  const openDeployment = async () => {
     if (isDeploymentPending || isConfigurationFailed) {
       const retryMode = normalizedBackendStatus === 'priceconfirmationrequired'
         ? 'price-confirmation'
@@ -252,6 +400,11 @@ export default function ReviewDeployPage() {
       return;
     }
 
+    if (governanceNeedsSync) {
+      const restored = await persistReviewGovernance();
+      if (!restored) return;
+    }
+
     const incompleteStep = TOKEN_ISSUANCE_STEPS.filter(
       (step) => step.key !== 'review',
     ).find((step) => !completedSteps.includes(step.key));
@@ -294,6 +447,64 @@ export default function ReviewDeployPage() {
     navigate(ROUTES.tokenDeploying);
   };
 
+  if (assetChainMismatch) {
+    const selectedChainName =
+      web3Config.getChainRecordByUid(resolvedSelectedChainUid)?.chainName ||
+      web3Config.getChainRecordById(selectedChainId)?.chainName ||
+      'the selected network';
+    const assetChainName =
+      tokenInformation.network ||
+      web3Config.getChainRecordByUid(assetChainUid)?.chainName ||
+      wallet.requiredChain?.name ||
+      'the asset network';
+    const networkMismatchMessage = buildTokenIssuanceNetworkMismatchMessage({
+      assetNetworkName: assetChainName,
+      appNetworkName: selectedChainName,
+    });
+
+    return (
+      <IssuanceLayout
+        stepKey="review"
+        title="Review & Create"
+        description="Review the asset on the network selected during token creation."
+        hideFooter
+        pageClassName="issuance-review-page"
+      >
+        <section className="review-deployment-panel" aria-live="polite">
+          <span className="review-deployment-panel__icon" aria-hidden="true">
+            <Network size={25} />
+          </span>
+          <div className="review-deployment-panel__heading">
+            <span>Network mismatch</span>
+            <h2>Network selections do not match</h2>
+            <p>{networkMismatchMessage}</p>
+          </div>
+          <InfoCallout title="No action has been submitted" tone="info" icon={Network}>
+            We paused asset-specific loading on this page until the correct network is selected.
+          </InfoCallout>
+          <div className="review-deployment-panel__actions">
+            <Button
+              variant="secondary"
+              icon={ArrowLeft}
+              onClick={() => navigate(ROUTES.tokenIssuanceStep('token-information'))}
+              disabled={switchingAssetChain}
+            >
+              Change Step 1 Network
+            </Button>
+            <Button
+              icon={Network}
+              onClick={switchToAssetChain}
+              loading={switchingAssetChain}
+              disabled={switchingAssetChain}
+            >
+              Switch Navbar Network
+            </Button>
+          </div>
+        </section>
+      </IssuanceLayout>
+    );
+  }
+
   return (
     <>
       <IssuanceLayout
@@ -304,7 +515,7 @@ export default function ReviewDeployPage() {
         onContinue={openDeployment}
         continueLabel={isDeploymentPending || isConfigurationFailed ? 'Continue Setup' : 'Create Asset'}
         continueIcon={Rocket}
-        continueDisabled={blocking}
+        continueDisabled={blocking || syncingGovernance}
         hideFooter
         pageClassName="issuance-review-page"
       >
@@ -340,7 +551,7 @@ export default function ReviewDeployPage() {
                 <DetailItem label="Decimal places">{tokenInformation.decimals}</DetailItem>
                 <DetailItem label="Starting price per unit">
                   {supplyPricing.initialPrice
-                    ? formatMoney(supplyPricing.initialPrice, supplyPricing.currency || '—')
+                    ? <TokenPriceValue value={supplyPricing.initialPrice} suffix={` ${supplyPricing.currency || '—'}`} />
                     : '—'}
                 </DetailItem>
                 <DetailItem label="Approved organization account" full>
@@ -577,7 +788,7 @@ export default function ReviewDeployPage() {
             <div className="review-deployment-wallet">
               <div className="review-deployment-wallet__control">
                 <span className="review-deployment-wallet__label">Approved organization account</span>
-                <WalletControl expanded />
+                <WalletControl expanded requiredChainId={tokenInformation.chainId} />
               </div>
 
               <div
@@ -663,8 +874,8 @@ export default function ReviewDeployPage() {
               <Button
                 icon={Rocket}
                 onClick={openDeployment}
-                disabled={blocking}
-                loading={startingDeployment}
+                disabled={blocking || syncingGovernance}
+                loading={startingDeployment || syncingGovernance}
                 title={blocking ? blockingReason : undefined}
               >
                 {isDeploymentPending

@@ -41,3 +41,14 @@ Signup and managed-user emails, role names, menu codes, permission codes, API pa
 
 The collection includes stable `issuerRoleUid` and `investorRoleUid` variables plus organization/location variables populated by request tests.
 Registry testing also uses `registryRegistrationUid` (captured automatically) and `registryTxHash` (a real issuer-wallet `registerIdentity` transaction).
+
+15. Multichain APIs use `chainUid` for backend relations and `chainId` for wallet transactions.
+    Run **List Supported Chains**, copy a chain UID to `chainUid`, then run **My Chain Access**.
+    **Unlock Chain ONCHAINID** is idempotent but broadcasts through the configured backend signer when
+    the selected chain is still locked. Filter **Supported Payment Tokens** with `chainUid` before
+    selecting a payment token. Chain and payment-token CRUD calls require `adminToken`; never place
+    a real signer key in an exported/shared Postman environment.
+16. Network deletion is intentionally unavailable. Admin network PATCH accepts only public RPC,
+    explorer URL, fallback RPC URLs, and active state. Use the image requests to select a local
+    image file and the audit-history request to verify the before/after record. Payment-token
+    purchase/redemption capability flags are create-only and must not be sent in PATCH requests.

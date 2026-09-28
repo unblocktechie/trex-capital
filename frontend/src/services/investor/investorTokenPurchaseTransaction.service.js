@@ -6,7 +6,6 @@ import {
   http,
   isAddress,
 } from 'viem';
-import { env } from '@/config/env';
 import { web3Config } from '@/config/web3';
 import {
   approvePlatformPurchaseSpending,
@@ -66,7 +65,7 @@ const publicClientFor = (chainId) => {
   const chain = chainFor(chainId);
   return createPublicClient({
     chain,
-    transport: http(env.web3.rpcUrl),
+    transport: http(web3Config.getChainRecordById(chain.id)?.publicRpcUrl),
   });
 };
 

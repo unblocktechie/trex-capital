@@ -1,5 +1,6 @@
 import { SelectField } from '@/components/organization/OrganizationFields';
 import { TokenIcon } from '@/components/common/TokenIcon';
+import { resolveMasterImageUrl } from '@/utils/masterImage';
 
 const paymentTokenDisplayName = (token) =>
   token?.name !== token?.symbol
@@ -23,7 +24,7 @@ export function PaymentTokenSelect({
     return (
       <span className="payment-token-choice">
         <span aria-hidden="true">
-          <TokenIcon symbol={token?.symbol} name={displayName} size="sm" />
+          <TokenIcon symbol={token?.symbol} name={displayName} imageUrl={resolveMasterImageUrl(token)} size="sm" />
         </span>
         <span className="payment-token-choice__text">
           <strong>{token?.symbol || option.label}</strong>
@@ -42,7 +43,7 @@ export function PaymentTokenSelect({
     return (
       <span className="payment-token-choice payment-token-choice--compact-value">
         <span aria-hidden="true">
-          <TokenIcon symbol={token?.symbol} name={displayName} size="sm" />
+          <TokenIcon symbol={token?.symbol} name={displayName} imageUrl={resolveMasterImageUrl(token)} size="sm" />
         </span>
         <span className="payment-token-choice__compact-text">
           <strong>{token?.symbol || option.label}</strong>

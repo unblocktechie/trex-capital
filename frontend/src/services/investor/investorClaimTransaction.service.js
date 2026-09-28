@@ -48,7 +48,7 @@ export const getInvestorClaimWalletErrorMessage = (error) => {
   }
 
   if (/insufficient funds|insufficient balance/.test(text)) {
-    return 'Your registered wallet needs a small amount of Sepolia ETH to pay the network fee.';
+    return 'Your registered wallet needs enough native currency on the selected network to pay the network fee.';
   }
 
   if (
@@ -99,6 +99,7 @@ export async function submitInvestorClaimTransaction({
   connectedAddress,
   registeredWalletAddress,
   preparedClaim,
+  chainId,
 }) {
   const investorIdentityAddress = preparedClaim?.investorIdentityAddress;
   const issuerIdentityAddress = preparedClaim?.issuerIdentityAddress;
@@ -153,10 +154,19 @@ export async function submitInvestorClaimTransaction({
 
   // Re-check the chain directly against the provider immediately before opening the
   // wallet request. This protects against the user changing networks between renders.
+  const requiredChainId = parseChainId(preparedClaim?.chainId || chainId);
+  const requiredChain = web3Config.getChainById(requiredChainId);
+  if (!requiredChain) {
+    const error = new Error('The network returned for this verification is not supported by this application.');
+    error.code = 'UNSUPPORTED_CHAIN';
+    throw error;
+  }
+
   const providerChainId = parseChainId(await provider.request({ method: 'eth_chainId' }));
-  if (providerChainId !== web3Config.requiredChain.id) {
-    const error = new Error('Please switch your wallet to the required network to submit this claim.');
+  if (providerChainId !== requiredChain.id) {
+    const error = new Error(`Please switch your wallet to ${requiredChain.name} to submit this claim.`);
     error.code = 'WRONG_WALLET_NETWORK';
+    error.requiredChainId = requiredChain.id;
     throw error;
   }
 

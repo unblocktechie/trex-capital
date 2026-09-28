@@ -20,6 +20,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { investmentApi } from '@/api/investments';
 import { CurrencyAmount } from '@/components/common/CurrencyAmount';
+import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import {
   InvestorTokenActionHeader,
   InvestorTokenIdentityCard,
@@ -59,6 +60,7 @@ import { getWalletErrorMessage } from '@/utils/wallet';
 import { getWalletFundingIssue } from '@/utils/walletFunding';
 import { getInvestmentActionContext } from '@/utils/investmentPurchase';
 import { getInvestmentJourney } from '@/utils/investmentJourney';
+import { formatDecimalForDisplay, multiplyDecimalStrings } from '@/utils/currency';
 import { resolveCurrentTokenPriceExact } from '@/utils/tokenPrice';
 
 
@@ -387,9 +389,21 @@ export default function PurchaseTokenPage({
   const tokenPriceExact = activePurchasePrice
     || clean(platformQuote?.priceFormatted)
     || resolveCurrentTokenPriceExact(token || {});
-  const estimatedPayment = clean(platformQuote?.paymentAmountFormatted)
-    || clean(purchase?.paymentAmountFormatted || purchase?.usdtAmount)
-    || '';
+  const preparedPaymentExact = canonicalDecimal(
+    clean(purchase?.paymentAmountFormatted || purchase?.usdtAmount || purchase?.paymentAmount),
+  );
+  const quotedPaymentExact = canonicalDecimal(clean(platformQuote?.paymentAmountFormatted));
+  const estimatedPaymentExact = isPositiveDecimal(preparedPaymentExact)
+    ? preparedPaymentExact
+    : isPositiveDecimal(quotedPaymentExact)
+      ? quotedPaymentExact
+      : isPositiveDecimal(normalizedTokenAmount) && isPositiveDecimal(canonicalDecimal(tokenPriceExact))
+        ? multiplyDecimalStrings(normalizedTokenAmount, tokenPriceExact)
+        : '';
+  const estimatedPaymentDisplay = formatDecimalForDisplay(estimatedPaymentExact);
+  const settlementSymbol = String(
+    platformQuote?.paymentTokenSymbol || token?.currency || '',
+  ).trim().toUpperCase();
 
   const resolveWalletFundingIssue = useCallback((walletError) => getWalletFundingIssue(walletError, {
     walletAddress: walletGuard.wallet.address || preparedInvestorWallet,
@@ -1271,8 +1285,12 @@ export default function PurchaseTokenPage({
             <div className="investor-token-action-calculation">
               <span>Estimated payment token cost</span>
               <strong>
-                <CurrencyAmount symbol={platformQuote?.paymentTokenSymbol || token.currency || ''}>
-                  {estimatedPayment || '—'}
+                <CurrencyAmount
+                  symbol={settlementSymbol}
+                  title={estimatedPaymentDisplay.isAbbreviated ? `${estimatedPaymentDisplay.exact} ${settlementSymbol}` : undefined}
+                  ariaLabel={estimatedPaymentDisplay.isAbbreviated ? `${estimatedPaymentDisplay.exact} ${settlementSymbol}` : undefined}
+                >
+                  {estimatedPaymentDisplay.display || '—'}
                 </CurrencyAmount>
               </strong>
             </div>
@@ -1322,7 +1340,9 @@ export default function PurchaseTokenPage({
               <span>Price per unit</span>
               <strong>
                 {tokenPriceExact ? (
-                  <CurrencyAmount symbol={platformQuote?.paymentTokenSymbol || token.currency || ''}>{displayServerAmount(tokenPriceExact)}</CurrencyAmount>
+                  <CurrencyAmount symbol={settlementSymbol}>
+                    <TokenPriceValue value={tokenPriceExact} />
+                  </CurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
@@ -1333,8 +1353,14 @@ export default function PurchaseTokenPage({
             <div className="investor-token-order-row">
               <span>Estimated payment token cost</span>
               <strong>
-                {estimatedPayment ? (
-                  <CurrencyAmount symbol={platformQuote?.paymentTokenSymbol || token.currency || ''}>{estimatedPayment}</CurrencyAmount>
+                {isPositiveDecimal(estimatedPaymentExact) ? (
+                  <CurrencyAmount
+                    symbol={settlementSymbol}
+                    title={estimatedPaymentDisplay.isAbbreviated ? `${estimatedPaymentDisplay.exact} ${settlementSymbol}` : undefined}
+                    ariaLabel={estimatedPaymentDisplay.isAbbreviated ? `${estimatedPaymentDisplay.exact} ${settlementSymbol}` : undefined}
+                  >
+                    {estimatedPaymentDisplay.display}
+                  </CurrencyAmount>
                 ) : '—'}
               </strong>
             </div>

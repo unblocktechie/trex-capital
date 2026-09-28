@@ -3,13 +3,15 @@ import { PaymentTokenSelect } from '@/components/token-issuance/PaymentTokenSele
 import { usePaymentTokens } from '@/hooks/usePaymentTokens';
 import { supportsPaymentAction, paymentContextOf } from '@/config/payment-tokens';
 import { web3Config } from '@/config/web3';
-import { env } from '@/config/env';
-import { ArrowRight } from 'lucide-react';
+import { ChainSelector } from '@/components/common/ChainSelector';
+import { useMyChains } from '@/hooks/useChains';
+import { AlertTriangle, ArrowRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { tokenApi } from '@/api/tokens';
 import { TokenIcon } from '@/components/common/TokenIcon';
+import { resolveMasterImageUrl } from '@/utils/masterImage';
 import {
   FieldWrapper,
   HelpDetails,
@@ -24,6 +26,7 @@ import { IssuanceLayout } from '@/components/token-issuance/IssuanceLayout';
 import { ROUTES } from '@/config/routes';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useOrganization } from '@/hooks/useOrganization';
+import { useAppNetwork } from '@/hooks/useAppNetwork';
 import { useTokenIssuanceStore } from '@/store/tokenIssuance.store';
 import { mapTokenApiFieldErrors, getTokenApiErrorMessage } from '@/utils/tokenApiValidation';
 import {
@@ -31,14 +34,21 @@ import {
   getDuplicateTokenMessage,
   isDuplicateTokenError,
 } from '@/utils/tokenDuplicateProtection';
-import { validateTokenInformation } from '@/utils/tokenIssuance';
+import {
+  decimalStepFor,
+  isDecimalInputWithinPrecision,
+  normalizePaymentTokenDecimals,
+  validateTokenInformation,
+} from '@/utils/tokenIssuance';
 import { tokenLogoToFile } from '@/utils/tokenLogo';
+import { buildTokenIssuanceNetworkMismatchMessage } from '@/utils/tokenIssuanceNetwork';
 
 const DECIMAL_OPTIONS = ['2', '6', '8', '18'].map((value) => ({ label: value, value }));
 
 const normalizeTokenName = (value) => value.trim();
 
 const INFORMATION_FIELD_MAP = {
+  chainUid: 'chainUid',
   tokenName: 'name',
   tokenSymbol: 'symbol',
   decimals: 'decimals',
@@ -51,6 +61,8 @@ const INFORMATION_FIELD_MAP = {
 
 export default function TokenInformationPage() {
   const navigate = useNavigate();
+  const appNetwork = useAppNetwork();
+  const activeChainId = appNetwork.activeChainId;
   const { organization, isLoading: organizationLoading } = useOrganization();
   const data = useTokenIssuanceStore((state) => state.tokenInformation);
   const supplyPricing = useTokenIssuanceStore((state) => state.supplyPricing);
@@ -64,16 +76,40 @@ export default function TokenInformationPage() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [serverErrors, setServerErrors] = useState({});
-  const catalogue = usePaymentTokens();
-  const paymentOptions = (catalogue.data || []).filter((item) => item.chainId === web3Config.requiredChain.id && supportsPaymentAction(item, 'create'));
+  const userChains = useMyChains();
+  const selectedChain = (userChains.data || []).find((item) => item.chainUid === data.chainUid) || web3Config.getChainRecordByUid(data.chainUid);
+  const selectedAppChain = appNetwork.activeChain;
+  const assetNetworkMismatch = Boolean(
+    selectedChain?.chainUid &&
+    appNetwork.activeChainUid &&
+    selectedChain.chainUid !== appNetwork.activeChainUid,
+  );
+  const assetNetworkName = selectedChain?.chainName || data.network || 'the asset network';
+  const appNetworkName = selectedAppChain?.chainName || 'the network selected in the navbar';
+  const networkMismatchMessage = buildTokenIssuanceNetworkMismatchMessage({
+    assetNetworkName,
+    appNetworkName,
+  });
+  const catalogue = usePaymentTokens({ chainUid: data.chainUid, action: 'purchase', enabled: Boolean(data.chainUid) });
+  const paymentOptions = (catalogue.data || []).filter((item) => supportsPaymentAction(item, 'create'));
   const selectedPayment = (catalogue.data || []).find((item) => item.contractAddress.toLowerCase() === String(supplyPricing.paymentTokenAddress || '').toLowerCase());
   const paymentSymbol = selectedPayment?.symbol || supplyPricing.currency || 'payment token';
+  const paymentTokenImageUrl = resolveMasterImageUrl(selectedPayment);
+  const paymentTokenDecimals = normalizePaymentTokenDecimals(
+    selectedPayment?.decimals ?? supplyPricing.paymentTokenDecimals,
+  );
+  const priceStep = decimalStepFor(paymentTokenDecimals);
+  const pricePrecisionHint = paymentTokenDecimals === 0
+    ? 'Use whole numbers only.'
+    : `Use at most ${paymentTokenDecimals} decimal place${paymentTokenDecimals === 1 ? '' : 's'}.`;
   const deployment = useTokenIssuanceStore((state) => state.deployment);
-  const paymentLocked = Boolean(supplyPricing.paymentTokenLocked || isTokenCreationLocked(backend, deployment));
+  const creationLocked = isTokenCreationLocked(backend, deployment);
+  const paymentLocked = Boolean(supplyPricing.paymentTokenLocked || creationLocked);
   const organizationWallet = organization?.walletAddress || '';
   const errors = validateTokenInformation(data, supplyPricing, {
     requiredTreasuryWallet: organizationWallet,
     imageAvailable: backend.imageAvailable,
+    paymentTokenDecimals,
   });
   useDocumentTitle('Asset Details');
 
@@ -81,6 +117,27 @@ export default function TokenInformationPage() {
     hydrateWalletDefaults(organizationWallet);
   }, [hydrateWalletDefaults, organizationWallet]);
 
+  useEffect(() => {
+    // Before the backend finishes hydrating a new setup, align the initial form
+    // value with the application network. After hydration, the form selection is
+    // intentionally independent so the issuer can choose a target network first.
+    if (backend.hydrated || backend.tokenUid || creationLocked || !activeChainId || userChains.isPending) return;
+    const preferred = (userChains.data || []).find(
+      (chain) => chain.chainId === Number(activeChainId) && chain.isUnlocked,
+    );
+    if (!preferred || preferred.chainUid === data.chainUid) return;
+    updateSection('tokenInformation', {
+      chainUid: preferred.chainUid,
+      chainId: preferred.chainId,
+      network: preferred.chainName,
+    });
+    updateSection('supplyPricing', {
+      paymentTokenAddress: '',
+      paymentTokenDecimals: null,
+      controllerAddress: preferred.platformControllerAddress || '',
+      currency: '',
+    });
+  }, [activeChainId, backend.hydrated, backend.tokenUid, creationLocked, data.chainUid, updateSection, userChains.data, userChains.isPending]);
 
   useEffect(() => {
     if (organizationWallet && data.treasuryWallet !== organizationWallet) {
@@ -104,10 +161,23 @@ export default function TokenInformationPage() {
   const blur = (name) => setTouched((current) => ({ ...current, [name]: true }));
 
   const continueStep = async () => {
-    if (saving || backend.isLocked) return;
+    if (saving || creationLocked) return;
     setSubmitted(true);
     setServerErrors({});
     markStepTouched('token-information');
+    if (!selectedChain?.isUnlocked) {
+      setServerErrors({ chainUid: 'Select an unlocked network before continuing.' });
+      return;
+    }
+    if (assetNetworkMismatch) {
+      setServerErrors({ chainUid: networkMismatchMessage });
+      toast.error('Network selections do not match', {
+        id: 'token-issuance-network-mismatch',
+        description: networkMismatchMessage,
+        duration: 10_000,
+      });
+      return;
+    }
     if (!selectedPayment || !paymentOptions.includes(selectedPayment)) {
       setServerErrors({ paymentTokenAddress: 'Select an active payment token from the catalogue.' });
       return;
@@ -117,6 +187,7 @@ export default function TokenInformationPage() {
     setSaving(true);
     try {
       const formData = new FormData();
+      formData.append('chainUid', data.chainUid);
       formData.append('tokenName', data.name.trim());
       formData.append('tokenSymbol', data.symbol.trim().toUpperCase());
       formData.append('decimals', String(data.decimals));
@@ -148,10 +219,11 @@ export default function TokenInformationPage() {
         initialPrice: String(response?.initialTokenPrice ?? supplyPricing.initialPrice),
         currency: selectedPayment.symbol,
         paymentTokenAddress: selectedPayment.contractAddress,
+        paymentTokenDecimals: selectedPayment.decimals,
         controllerAddress:
           savedPayment.controllerAddress ||
           selectedPayment.controllerAddress ||
-          env.trex.platformController,
+          selectedChain?.platformControllerAddress || '',
         paymentTokenLocked: isTokenCreationLocked(response),
       });
       recordBackendSave('token-information', response);
@@ -167,6 +239,10 @@ export default function TokenInformationPage() {
       });
       setServerErrors({ ...duplicateErrors, ...mappedErrors });
 
+      const errorCode = String(
+        error?.response?.data?.error?.code || error?.response?.data?.code || error?.code || '',
+      ).trim().toUpperCase();
+
       if (duplicateConflict) {
         toast.error('Asset name or symbol already exists', {
           id: 'duplicate-token-information',
@@ -175,6 +251,13 @@ export default function TokenInformationPage() {
             tokenSymbol: data.symbol,
           }),
           duration: 8_000,
+        });
+      } else if (errorCode === 'SELECTED_CHAIN_MISMATCH') {
+        setServerErrors((current) => ({ ...current, chainUid: networkMismatchMessage }));
+        toast.error('Network selections do not match', {
+          id: 'token-issuance-network-mismatch',
+          description: networkMismatchMessage,
+          duration: 10_000,
         });
       } else {
         toast.error('Asset details were not saved.', {
@@ -199,12 +282,93 @@ export default function TokenInformationPage() {
       continueLabel="Save and Continue"
       continueIcon={ArrowRight}
       continueLoading={saving}
-      continueDisabled={organizationLoading || !organizationWallet}
+      continueDisabled={organizationLoading || userChains.isPending || !organizationWallet || !selectedChain?.isUnlocked || assetNetworkMismatch}
+      footerExtra={assetNetworkMismatch ? (
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-amber-700" role="status">
+          <AlertTriangle size={14} className="shrink-0" aria-hidden="true" />
+          <span className="min-w-0">Asset and navbar networks must match before saving.</span>
+        </span>
+      ) : null}
       stepErrors={{ 'token-information': submitted ? { ...errors, ...serverErrors } : undefined }}
     >
       <div className="issuance-centered-form issuance-centered-form--wide">
         <SectionCard>
           <div className="issuance-form-grid">
+            <div className="issuance-field--full">
+              <ChainSelector
+                id="token-chain"
+                chains={userChains.data || []}
+                value={data.chainUid || ''}
+                onlyUnlocked
+                disabled={creationLocked || saving || userChains.isPending}
+                label="Asset network"
+                description={
+                  creationLocked
+                    ? 'This network is fixed because final asset creation has started.'
+                    : backend.tokenUid
+                      ? 'You can still change the network while this asset is a draft. Changing it clears the payment-token selection and restarts the remaining setup steps.'
+                      : 'Choose an unlocked network for this asset. Payment tokens and wallet actions will follow this selection.'
+                }
+                error={
+                  fieldError('chainUid') ||
+                  (userChains.isError
+                    ? 'Unable to load your network access.'
+                    : !selectedChain?.isUnlocked
+                      ? 'Unlock this network from Network Access before creating an asset.'
+                      : '')
+                }
+                onChange={(event) => {
+                  const chain = (userChains.data || []).find((item) => item.chainUid === event.target.value);
+                  if (!chain || !chain.isUnlocked || creationLocked) return;
+                  if (chain.chainUid === data.chainUid) return;
+
+                  updateSection('tokenInformation', {
+                    chainUid: chain.chainUid,
+                    chainId: chain.chainId,
+                    network: chain.chainName,
+                  });
+                  updateSection('supplyPricing', {
+                    paymentTokenAddress: '',
+                    paymentTokenDecimals: null,
+                    controllerAddress: chain.platformControllerAddress || '',
+                    currency: '',
+                    paymentTokenLocked: false,
+                  });
+                  setSubmitted(false);
+                  setTouched({});
+                  setServerErrors({});
+
+                  const requiresAppNetworkSwitch = Boolean(
+                    appNetwork.activeChainUid && chain.chainUid !== appNetwork.activeChainUid,
+                  );
+                  toast.info(`Asset network changed to ${chain.chainName}.`, {
+                    description: requiresAppNetworkSwitch
+                      ? buildTokenIssuanceNetworkMismatchMessage({
+                          assetNetworkName: chain.chainName,
+                          appNetworkName,
+                        })
+                      : 'Choose a payment token for this network and continue from Step 1. Later setup steps must be reviewed again before creation.',
+                  });
+                }}
+              />
+
+              {assetNetworkMismatch ? (
+                <div
+                  className="mt-3 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-amber-950"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <AlertTriangle className="mt-0.5 shrink-0 text-amber-600" size={17} aria-hidden="true" />
+                  <div className="min-w-0">
+                    <strong className="block text-sm font-semibold">Network selections do not match</strong>
+                    <p className="mt-1 mb-0 text-xs leading-5 text-amber-800 sm:text-sm">
+                      {networkMismatchMessage}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <TokenLogoUploader
               value={data.logo}
               onChange={(logo) => updateToken('logo', logo)}
@@ -288,7 +452,7 @@ export default function TokenInformationPage() {
               label="Payment token"
               required
               compact
-              networkLabel={web3Config.requiredChain.name}
+              networkLabel={selectedChain?.chainName || data.network || 'Selected network'}
               value={supplyPricing.paymentTokenAddress || ''}
               items={paymentLocked && selectedPayment && !paymentOptions.includes(selectedPayment) ? [selectedPayment, ...paymentOptions] : paymentOptions}
               placeholder={catalogue.isPending ? 'Loading payment tokens…' : 'Select payment token'}
@@ -299,10 +463,16 @@ export default function TokenInformationPage() {
               onChange={(event) => {
                 const selected = paymentOptions.find((item) => item.contractAddress === event.target.value);
                 clearServerError('paymentTokenAddress');
+                clearServerError('initialPrice');
+                if (selected && supplyPricing.initialPrice
+                  && !isDecimalInputWithinPrecision(supplyPricing.initialPrice, selected.decimals)) {
+                  setTouched((current) => ({ ...current, initialPrice: true }));
+                }
                 updateSection('supplyPricing', {
                   paymentTokenAddress: selected?.contractAddress || '',
+                  paymentTokenDecimals: selected?.decimals ?? null,
                   controllerAddress: selected
-                    ? selected.controllerAddress || env.trex.platformController
+                    ? selected.controllerAddress || selectedChain?.platformControllerAddress || ''
                     : '',
                   currency: selected?.symbol || '',
                 });
@@ -313,19 +483,25 @@ export default function TokenInformationPage() {
               label={`Starting price per unit (${paymentSymbol})`}
               required
               error={fieldError('initialPrice')}
-              hint={`Price for one asset unit in ${paymentSymbol}. Use at most 6 decimal places.`}
+              hint={`Price for one asset unit in ${paymentSymbol}. ${pricePrecisionHint}`}
               htmlFor="initial-token-price"
             >
               <div className="issuance-currency-input">
                 <span className="issuance-currency-input__icon" aria-hidden="true">
-                  <TokenIcon symbol={paymentSymbol} size="sm" />
+                  <TokenIcon
+                    key={`${selectedPayment?.contractAddress || paymentSymbol}:${paymentTokenImageUrl}`}
+                    symbol={paymentSymbol}
+                    name={selectedPayment?.name}
+                    imageUrl={paymentTokenImageUrl}
+                    size="sm"
+                  />
                 </span>
                 <TextInput
                   id="initial-token-price"
                   className="issuance-currency-input__control"
                   type="number"
-                  min="0.000001"
-                  step="any"
+                  min={priceStep}
+                  step={priceStep}
                   inputMode="decimal"
                   value={supplyPricing.initialPrice}
                   onKeyDown={(event) => {
@@ -333,6 +509,7 @@ export default function TokenInformationPage() {
                   }}
                   onChange={(event) => {
                     const nextValue = event.target.value;
+                    if (!isDecimalInputWithinPrecision(nextValue, paymentTokenDecimals)) return;
                     if (nextValue !== '' && Number(nextValue) < 0) return;
                     clearServerError('initialPrice');
                     updateSection('supplyPricing', {

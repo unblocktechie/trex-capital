@@ -20,16 +20,22 @@ import { SubmissionConfirmationModal } from '@/components/organization/Submissio
 import { UploadedDocumentList } from '@/components/organization/UploadedDocumentList';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { ChainSelector } from '@/components/common/ChainSelector';
 import { WalletControl } from '@/components/wallet/WalletControl';
 import { ROUTES } from '@/config/routes';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { usePublicChains } from '@/hooks/useChains';
+import { web3Config } from '@/config/web3';
 import { useOrganization } from '@/hooks/useOrganization';
+import { useAuth } from '@/hooks/useAuth';
 import { formatDate } from '@/utils/date';
 import { useWalletConnection } from '@/hooks/useWalletConnection';
 import { organizationDocumentService } from '@/services/organizationDocumentService';
 import { getErrorMessage } from '@/utils/error';
 import { getWalletErrorMessage } from '@/utils/wallet';
 import { beneficialOwnersSchema, isOrganizationReadyForSubmission } from '@/validations/organization.schemas';
+import { useUiStore } from '@/store/ui.store';
+import { networkUserKey, useNetworkStore } from '@/store/network.store';
 
 const EditButton = ({ onClick, label }) => (
   <Button variant="ghost" size="sm" icon={Edit3} onClick={onClick} aria-label={`Edit ${label}`}>
@@ -40,7 +46,16 @@ const EditButton = ({ onClick, label }) => (
 export default function ReviewSubmissionPage() {
   useDocumentTitle('Final Review & Submission');
   const navigate = useNavigate();
-  const wallet = useWalletConnection();
+  const { user } = useAuth();
+  const userKey = networkUserKey(user);
+  const persistedChainId = useNetworkStore((state) => state.activeChainByUser[userKey] || null);
+  const setActiveChainId = useNetworkStore((state) => state.setActiveChainId);
+  const publicChains = usePublicChains();
+  const initialChainUid = web3Config.getChainRecordById(persistedChainId)?.chainUid || web3Config.defaultChainRecord?.chainUid || '';
+  const [selectedChainUid, setSelectedChainUid] = useState(initialChainUid);
+  const selectedChain = (publicChains.data || []).find((item) => item.chainUid === selectedChainUid) || publicChains.data?.[0] || null;
+  const wallet = useWalletConnection(selectedChain?.chainId);
+  const setWalletRequiredChainId = useUiStore((state) => state.setWalletRequiredChainId);
   const { organization, refresh, saveConfirmations, setCurrentStep, submit } = useOrganization();
   const [confirmations, setConfirmations] = useState(organization.confirmations);
   const [modalOpen, setModalOpen] = useState(false);
@@ -52,6 +67,15 @@ export default function ReviewSubmissionPage() {
   useEffect(() => {
     refresh().catch(() => undefined);
   }, [refresh]);
+
+  useEffect(() => {
+    setWalletRequiredChainId(selectedChain?.chainId);
+    if (selectedChain?.chainId) setActiveChainId(user, selectedChain.chainId, selectedChain.chainUid);
+  }, [selectedChain?.chainId, selectedChain?.chainUid, setActiveChainId, setWalletRequiredChainId, user]);
+
+  useEffect(() => () => {
+    setWalletRequiredChainId(null);
+  }, [setWalletRequiredChainId]);
 
   useEffect(() => {
     setConfirmations(organization.confirmations);
@@ -79,7 +103,7 @@ export default function ReviewSubmissionPage() {
   const beneficialOwnershipValid = beneficialOwnersSchema.safeParse({
     beneficialOwners: organization.beneficialOwners || [],
   }).success;
-  const walletReady = wallet.isConnected && wallet.isCorrectNetwork && Boolean(wallet.address);
+  const walletReady = Boolean(selectedChain?.chainUid) && wallet.isConnected && wallet.isCorrectNetwork && Boolean(wallet.address);
 
   const updateConfirmation = (key, checked) => {
     const next = { ...confirmations, [key]: checked };
@@ -114,8 +138,9 @@ export default function ReviewSubmissionPage() {
     try {
       await submit({
         walletAddress: wallet.address,
-        walletChainId: wallet.chainId,
-        walletNetwork: wallet.requiredChain.name,
+        chainUid: selectedChain.chainUid,
+        walletChainId: selectedChain.chainId,
+        walletNetwork: selectedChain.chainName,
       });
       setModalOpen(false);
       toast.success('Application submitted', {
@@ -304,6 +329,18 @@ export default function ReviewSubmissionPage() {
                 </div>
               ) : null}
 
+
+              <ChainSelector
+                id="organization-onboarding-chain"
+                chains={publicChains.data || []}
+                value={selectedChainUid}
+                onChange={(event) => setSelectedChainUid(event.target.value)}
+                disabled={submitting || publicChains.isPending}
+                label="First network"
+                description="Your organization ONCHAINID will be created on this network after administrator approval."
+                error={publicChains.isError ? 'Unable to load supported networks.' : ''}
+              />
+
               <div className="grid min-w-0 gap-3">
                 <div className="flex items-center gap-2">
                   <WalletCards size={17} className="text-slate-500" />
@@ -312,7 +349,7 @@ export default function ReviewSubmissionPage() {
 
                 {!wallet.isConnected ? (
                   <>
-                    <WalletControl prominent />
+                    <WalletControl prominent requiredChainId={selectedChain?.chainId} />
                     <p className="m-0 text-xs leading-5 text-slate-500">
                       MetaMask and WalletConnect are supported. The wallet must connect to {wallet.requiredChain.name}.
                     </p>
@@ -327,7 +364,7 @@ export default function ReviewSubmissionPage() {
                         </span>
                       </span>
                       <div className="min-w-0">
-                        <WalletControl expanded />
+                        <WalletControl expanded requiredChainId={selectedChain?.chainId} />
                       </div>
                     </div>
                   </div>
@@ -387,7 +424,7 @@ export default function ReviewSubmissionPage() {
                   className="w-full"
                   size="lg"
                   icon={Send}
-                  disabled={!allConfirmed || !applicationComplete || submitting}
+                  disabled={!allConfirmed || !applicationComplete || !selectedChain || submitting}
                   onClick={() => setModalOpen(true)}
                 >
                   Submit Application
@@ -423,7 +460,7 @@ export default function ReviewSubmissionPage() {
         loading={submitting}
         walletAddress={wallet.address}
         walletBalance={wallet.balanceLabel}
-        networkName={wallet.requiredChain.name}
+        networkName={selectedChain?.chainName || wallet.requiredChain.name}
       />
     </OrganizationPageLayout>
   );

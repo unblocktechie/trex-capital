@@ -3,11 +3,13 @@ import { Building2, ChevronDown, LogOut, Menu, UserRound } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { authService } from '@/api/auth';
 import { TrexLogo } from '@/components/branding/TrexLogo';
+import { AppNetworkSwitcher } from '@/components/common/AppNetworkSwitcher';
 import { WalletControl } from '@/components/wallet/WalletControl';
 import { routeMeta } from '@/config/navigation';
 import { ROLES } from '@/config/permissions';
 import { ROUTES } from '@/config/routes';
 import { useAuth } from '@/hooks/useAuth';
+import { useAppNetwork } from '@/hooks/useAppNetwork';
 import { useUiStore } from '@/store/ui.store';
 
 const formatRole = (role) => {
@@ -23,6 +25,16 @@ export function Header({ onboardingOnly = false }) {
   const navigate = useNavigate();
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
   const toggleSidebarCollapsed = useUiStore((state) => state.toggleSidebarCollapsed);
+  const walletRequiredChainId = useUiStore((state) => state.walletRequiredChainId);
+  const appNetwork = useAppNetwork({ pathname: location.pathname });
+  const effectiveWalletChainId = walletRequiredChainId || appNetwork.activeChainId;
+  const isNetworkAwareUser = user?.role === ROLES.issuer || user?.role === ROLES.investor;
+  const isInvestorOnboardingRoute =
+    user?.role === ROLES.investor && location.pathname === ROUTES.investors;
+  const showNetworkSwitcher =
+    isNetworkAwareUser &&
+    location.pathname !== ROUTES.organizationReview &&
+    !isInvestorOnboardingRoute;
   const [profileOpen, setProfileOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const profileRef = useRef(null);
@@ -175,8 +187,9 @@ export function Header({ onboardingOnly = false }) {
           <TrexLogo />
         </div>
         <div className="onboarding-header__account">
+          {showNetworkSwitcher ? <AppNetworkSwitcher pathname={location.pathname} onboardingOnly network={appNetwork} /> : null}
           <div className="header-wallet-control">
-            <WalletControl onboarding />
+            <WalletControl onboarding context={user?.role === ROLES.investor ? 'investor' : 'organization'} requiredChainId={effectiveWalletChainId} />
           </div>
           {accountMenu}
         </div>
@@ -201,8 +214,9 @@ export function Header({ onboardingOnly = false }) {
       </div>
 
       <div className="app-header__actions">
+        {showNetworkSwitcher ? <AppNetworkSwitcher pathname={location.pathname} network={appNetwork} /> : null}
         <div className="header-wallet-control">
-          <WalletControl />
+          <WalletControl context={user?.role === ROLES.investor ? 'investor' : 'organization'} requiredChainId={effectiveWalletChainId} />
         </div>
         {accountMenu}
       </div>

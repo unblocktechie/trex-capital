@@ -150,6 +150,7 @@ class ClaimIndexerService {
     }
 
     const candidates = await this.submissionRepository.findChainMatchCandidates({
+      chainId: event.chainId,
       identityAddress: event.identityAddress,
       issuerIdentityAddress: event.issuerIdentityAddress,
       claimTopic: event.claimTopic,
@@ -284,7 +285,7 @@ class ClaimIndexerService {
         }
       }
 
-      const identities = (await this.indexerRepository.listIdentityAddresses()).filter(ethers.isAddress);
+      const identities = (await this.indexerRepository.listIdentityAddresses(chainId)).filter(ethers.isAddress);
       const addressBatches = chunks(identities, addressBatchSize);
       stats.identityCount = identities.length;
 

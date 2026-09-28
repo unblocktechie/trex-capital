@@ -1,9 +1,12 @@
 import { isTokenCreationLocked } from '@/utils/tokenCreationLock';
 import { paymentContextOf } from '@/config/payment-tokens';
 import { DEFAULT_CLAIM_TOPICS, TOKEN_ISSUANCE_STEPS } from '@/config/tokenIssuance';
+import { web3Config } from '@/config/web3';
 
 const first = (...values) => values.find((value) => value !== undefined && value !== null);
 const text = (...values) => String(first(...values, '') || '').trim();
+const nonEmptyText = (...values) =>
+  values.map((value) => String(value ?? '').trim()).find(Boolean) || '';
 const flag = (value) => value === true || value === 1 || value === '1' || value === 'true';
 
 const normalize = (value) =>
@@ -351,20 +354,107 @@ export const mapTokenForm = ({ data, options, countries, logo }) => {
   const currentStep = normalizeCurrentStep(data?.currentStep || 'information');
   const status = text(data?.status, 'draft');
   const completedSteps = completedFromStep(currentStep, status);
+  const approvedOrganizationWallet = nonEmptyText(
+    information?.treasuryWalletAddress,
+    information?.treasuryWallet,
+    data?.tokenInformation?.treasuryWalletAddress,
+    data?.tokenInformation?.treasuryWallet,
+    data?.information?.treasuryWalletAddress,
+    data?.information?.treasuryWallet,
+    data?.treasuryWalletAddress,
+    data?.treasuryWallet,
+    data?.organizationWalletAddress,
+    data?.organization?.walletAddress,
+    data?.approvedOrganizationWalletAddress,
+  );
+  const persistedTokenAgentWallet = nonEmptyText(
+    governance?.tokenAgentWalletAddress,
+    governance?.tokenAgent?.address,
+    typeof governance?.tokenAgent === 'string' ? governance.tokenAgent : '',
+    data?.agents?.tokenAgentWalletAddress,
+    data?.agents?.tokenAgent?.address,
+    typeof data?.agents?.tokenAgent === 'string' ? data.agents.tokenAgent : '',
+    data?.tokenAgentWalletAddress,
+    data?.tokenAgent?.address,
+    typeof data?.tokenAgent === 'string' ? data.tokenAgent : '',
+  );
+  const persistedIdentityManagerWallet = nonEmptyText(
+    governance?.identityManagerWalletAddress,
+    governance?.identityRegistryAgent?.address,
+    governance?.identityManager?.address,
+    typeof governance?.identityManager === 'string' ? governance.identityManager : '',
+    data?.agents?.identityManagerWalletAddress,
+    data?.agents?.identityRegistryAgent?.address,
+    data?.agents?.identityManager?.address,
+    typeof data?.agents?.identityManager === 'string' ? data.agents.identityManager : '',
+    data?.identityManagerWalletAddress,
+    data?.identityRegistryAgent?.address,
+    data?.identityManager?.address,
+    typeof data?.identityManager === 'string' ? data.identityManager : '',
+  );
+  const savedGovernanceWallet = completedSteps.includes('agents')
+    ? approvedOrganizationWallet
+    : '';
+
+  // chainUid is the backend-stable network identifier. Older/sparse token
+  // responses can omit chainId even though chainUid is present. Recover the
+  // numeric id from the bootstrapped chain catalogue so refreshed deployment
+  // routes do not fall back to an unrelated wallet/application network.
+  const persistedChainUid = text(
+    information?.chainUid,
+    data?.chainUid,
+    information?.chain?.chainUid,
+    data?.chain?.chainUid,
+  );
+  const persistedChainId =
+    Number(
+      first(
+        information?.chainId,
+        data?.chainId,
+        information?.chain?.chainId,
+        data?.chain?.chainId,
+      ),
+    ) || null;
+  const chainFromUid = persistedChainUid
+    ? web3Config.getChainRecordByUid(persistedChainUid)
+    : null;
+  const chainFromId = persistedChainId
+    ? web3Config.getChainRecordById(persistedChainId)
+    : null;
+  const resolvedChain = chainFromUid || chainFromId;
+  const resolvedChainUid = persistedChainUid || resolvedChain?.chainUid || '';
+  // When chainUid exists it is authoritative. This also repairs a stale numeric
+  // chainId from an older draft while never guessing from the platform default.
+  const resolvedChainId = chainFromUid?.chainId || persistedChainId || null;
+  const resolvedNetworkName =
+    text(
+      information?.chainName,
+      data?.chainName,
+      information?.network,
+      information?.networkName,
+      data?.networkName,
+    ) || resolvedChain?.chainName || '';
 
   return {
     exists: true,
     tokenInformation: {
       logo: logo || null,
+      chainUid: resolvedChainUid,
+      chainId: resolvedChainId,
       name: text(information?.tokenName, information?.name),
       symbol: text(information?.tokenSymbol, information?.symbol).toUpperCase(),
       decimals: text(information?.decimals, '18'),
       description: text(information?.tokenDescription, information?.description),
-      treasuryWallet: text(
+      treasuryWallet: nonEmptyText(
         information?.treasuryWalletAddress,
         information?.treasuryWallet,
+        data?.treasuryWalletAddress,
+        data?.treasuryWallet,
+        data?.organizationWalletAddress,
+        data?.organization?.walletAddress,
+        data?.approvedOrganizationWalletAddress,
       ),
-      network: text(information?.network, information?.networkName),
+      network: resolvedNetworkName,
     },
     supplyPricing: {
       initialPrice: text(
@@ -385,17 +475,21 @@ export const mapTokenForm = ({ data, options, countries, logo }) => {
       ),
       currency: paymentContextOf(information, data).paymentTokenSymbol,
       paymentTokenAddress: paymentContextOf(information, data).paymentTokenAddress,
+      paymentTokenDecimals: paymentContextOf(information, data).paymentTokenDecimals,
       paymentTokenLocked: isTokenCreationLocked(data, information),
       controllerAddress: paymentContextOf(information, data).controllerAddress,
     },
     identityClaims: {
       claimTopics: mappedClaims,
       trustedIssuer: {
-        address: text(
+        address: nonEmptyText(
           claims?.trustedClaimIssuerWalletAddress,
           claims?.trustedIssuerWalletAddress,
           information?.treasuryWalletAddress,
           information?.treasuryWallet,
+          data?.organizationWalletAddress,
+          data?.organization?.walletAddress,
+          data?.approvedOrganizationWalletAddress,
         ),
         mode: flag(
           first(
@@ -420,19 +514,10 @@ export const mapTokenForm = ({ data, options, countries, logo }) => {
     },
     agents: {
       tokenAgent: {
-        address: text(
-          governance?.tokenAgentWalletAddress,
-          governance?.tokenAgent?.address,
-          governance?.tokenAgent,
-        ),
+        address: nonEmptyText(persistedTokenAgentWallet, savedGovernanceWallet),
       },
       identityRegistryAgent: {
-        address: text(
-          governance?.identityManagerWalletAddress,
-          governance?.identityRegistryAgent?.address,
-          governance?.identityManager?.address,
-          governance?.identityManager,
-        ),
+        address: nonEmptyText(persistedIdentityManagerWallet, savedGovernanceWallet),
       },
     },
     options,
@@ -450,6 +535,12 @@ export const mapTokenForm = ({ data, options, countries, logo }) => {
           information?.imageMimeType ||
           information?.tokenImage ||
           completedSteps.includes('token-information'),
+      ),
+      governanceNeedsSync: Boolean(
+        normalize(status).replace(/\s+/g, '') === 'draft' &&
+          completedSteps.includes('agents') &&
+          approvedOrganizationWallet &&
+          (!persistedTokenAgentWallet || !persistedIdentityManagerWallet),
       ),
       updatedAt: first(data?.updatedAt, data?.modifiedAt, null),
     },

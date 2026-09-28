@@ -3,6 +3,7 @@ import { ROLES } from '@/config/permissions';
 import { useAuth } from '@/hooks/useAuth';
 import { issuerInvestorSubscriptionsService } from '@/services/issuer/issuerInvestorSubscriptionsService';
 import { issuerRegistryRecoveryStore } from '@/services/issuer/issuerRegistryRecoveryStore';
+import { networkUserKey, useNetworkStore } from '@/store/network.store';
 import { isValidTransactionHash } from '@/utils/transactionHash';
 
 const normalizeStatus = (value) => String(value || '').trim().toUpperCase();
@@ -32,9 +33,13 @@ const terminalErrorFromResponse = (error) => TERMINAL_REGISTRY_ERROR_CODES.has(n
 export function IssuerRegistryRecoveryBootstrap() {
   const { user, isAuthenticated } = useAuth();
   const inFlightRef = useRef(new Set());
+  const userKey = networkUserKey(user);
+  const selectedChainUid = useNetworkStore(
+    (state) => state.activeChainUidByUser[userKey] || '',
+  );
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== ROLES.issuer) return undefined;
+    if (!isAuthenticated || user?.role !== ROLES.issuer || !selectedChainUid) return undefined;
 
     const reconcileOnce = async () => {
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
@@ -103,7 +108,7 @@ export function IssuerRegistryRecoveryBootstrap() {
     void reconcileOnce();
     window.addEventListener('online', reconcileOnce);
     return () => window.removeEventListener('online', reconcileOnce);
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, selectedChainUid, user]);
 
   return null;
 }

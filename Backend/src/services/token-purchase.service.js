@@ -4,6 +4,7 @@ const { env } = require('../core/config/env');
 const { withTransaction } = require('../database/connection');
 const { PurchaseBlockchainError } = require('./blockchain/token-purchase-blockchain.service');
 const { presentToken } = require('./investment.service');
+const { assertSelectedChain } = require('../utils/selected-chain');
 
 const ceilDiv = (value, divisor) => (value + divisor - 1n) / divisor;
 
@@ -179,23 +180,26 @@ class TokenPurchaseService {
     }
   }
 
-  async get(user, purchaseUid) {
+  async get(user, purchaseUid, selectedChain = null) {
     this.assertInvestor(user);
     const row = await this.repository.findOwnedByUid(purchaseUid, user.userUid);
     if (!row) throw new ApiError(404, 'Purchase was not found.', undefined, 'PURCHASE_NOT_FOUND');
+    assertSelectedChain(row, selectedChain, 'Purchase');
     return this.present(row, await this.repository.listTransactions(purchaseUid));
   }
 
-  async listByToken(user, tokenUid, query = {}) {
+  async listByToken(user, tokenUid, query = {}, selectedChain = null) {
     this.assertInvestor(user);
     const page = Number(query.page || 1);
     const limit = Number(query.limit || 20);
-    const result = await this.repository.listOwnedByToken(user.userUid, tokenUid, {
+    const options = {
       page,
       limit,
       search: query.search || '',
       status: query.status || 'all',
-    });
+    };
+    if (selectedChain) options.chainId = selectedChain.chainId;
+    const result = await this.repository.listOwnedByToken(user.userUid, tokenUid, options);
     return {
       items: result.rows.map((row) => this.present(row)),
       pagination: {
@@ -207,13 +211,13 @@ class TokenPurchaseService {
     };
   }
 
-  async portfolio(user, query = {}) {
+  async portfolio(user, query = {}, selectedChain = null) {
     this.assertInvestor(user);
     const page = Number(query.page || 1);
     const limit = Number(query.limit || 20);
-    const result = await this.repository.listPortfolio(user.userUid, {
-      page, limit, search: query.search || '',
-    });
+    const options = { page, limit, search: query.search || '' };
+    if (selectedChain) options.chainUid = selectedChain.chainUid;
+    const result = await this.repository.listPortfolio(user.userUid, options);
     const tokenUids = result.rows.map((row) => row.tokenUid);
     const restrictions = this.investmentRepository
       ? await this.investmentRepository.listCountryRestrictionsForTokens(tokenUids) : [];
@@ -229,15 +233,16 @@ class TokenPurchaseService {
       }));
     }
     const paymentTokens = this.paymentTokenRepository
-      ? await this.paymentTokenRepository.listActive(this.config.chainId)
+      ? await this.paymentTokenRepository.listActive()
       : [];
     const paymentTokensByAddress = new Map(paymentTokens.map(
-      (token) => [token.contractAddress.toLowerCase(), token],
+      (token) => [`${token.chainId}:${token.contractAddress.toLowerCase()}`, token],
     ));
     return {
       items: result.rows.map((row) => {
         const {
-          interestUid, chainId, investorWalletAddress, usdtContractAddress, usdtDecimals,
+          interestUid, chainId, configuredChainId, chainUid, chainName, networkName, chainExplorerUrl,
+          investorWalletAddress, usdtContractAddress, usdtDecimals,
           purchaseCount, redemptionCount, totalPurchasedTokenAmount, totalPurchasedTokenAmountRaw,
           totalInvestedUsdtAmount, totalInvestedUsdtAmountRaw, totalRedeemedTokenAmount,
           totalRedeemedTokenAmountRaw, totalSentTokenAmount, totalSentTokenAmountRaw,
@@ -250,13 +255,16 @@ class TokenPurchaseService {
           tokenRow,
           restrictionsByToken.get(row.tokenUid) || [],
           tokenRow.paymentTokenAddress
-            ? paymentTokensByAddress.get(tokenRow.paymentTokenAddress.toLowerCase()) || null
+            ? paymentTokensByAddress.get(`${Number(configuredChainId || chainId)}:${tokenRow.paymentTokenAddress.toLowerCase()}`) || null
             : null,
         );
         return {
           ...token,
-          chainId: Number(chainId),
-          networkName: this.config.networkName || null,
+          chainUid,
+          chainId: Number(configuredChainId || chainId),
+          chainName: chainName || null,
+          networkName: networkName || null,
+          chainExplorerUrl: chainExplorerUrl || null,
           requiredClaimTopics: topicsByToken.get(row.tokenUid) || [],
           portfolio: {
             interestUid,

@@ -5,9 +5,10 @@ const schemas = require('../../../schemas/investor-claim.schema');
 
 // Investor on-chain claim submission + verification. Authenticated + DB-authorized, investor-only.
 // See 20260817_investor_claim_submission.sql.
-const createInvestorClaimRouter = ({ controller, authenticate, authorize }) => {
+const createInvestorClaimRouter = ({ controller, authenticate, authorize, requireInvestorChain }) => {
   const router = express.Router();
   router.use(authenticate);
+  router.use(requireInvestorChain);
   router.get('/', validate({ query: schemas.claimsQuery }), authorize, asyncHandler(controller.list));
   router.post(
     '/:claimId/prepare',

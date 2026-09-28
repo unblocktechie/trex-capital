@@ -235,6 +235,20 @@ button.org-stepper__button {
   padding: clamp(18px, 2.2vw, 28px);
 }
 
+/* Cards use backdrop-filter globally, which creates separate stacking contexts.
+   Lift the active form card while a custom select/date menu is open so issuer
+   dropdowns are never painted behind adjacent cards. */
+.org-form-card:has(.org-select-trigger.is-open),
+.org-form-card:has(.org-date-trigger.is-open) {
+  position: relative;
+  z-index: 120;
+}
+
+.org-form-card .org-select-popover,
+.org-form-card .org-date-popover {
+  z-index: 130;
+}
+
 .org-form-card__header,
 .org-readonly-card > header,
 .org-uploaded-panel > header {
@@ -1875,8 +1889,11 @@ button.org-stepper__button {
   display: grid;
   width: max(100%, 118px);
   max-height: min(230px, 35vh);
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--border);
   border-radius: 11px;
   background: var(--surface);
@@ -2405,6 +2422,8 @@ button.org-stepper__button {
     max-height: calc(100dvh - 24px);
     overflow-y: auto;
     overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
     padding: 10px;
     border-radius: 16px;
   }
@@ -3383,3 +3402,159 @@ button.org-stepper__button {
 .org-ubo-toolbar strong.is-valid, .org-ubo-toolbar small.is-valid { color: var(--success-500); }
 .org-ubo-toolbar small { max-width: 560px; margin-top: 3px; color: var(--text-muted); font-size: 11px; line-height: 1.45; }
 .org-ubo-toolbar small.is-error { color: var(--danger-500); }
+
+/* Shared date + time picker used by admin and organization flows. */
+.org-datetime-popover {
+  overflow: visible;
+}
+
+.org-datetime__time {
+  display: grid;
+  grid-template-columns: 34px minmax(72px, 1fr) minmax(150px, 1.45fr);
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 11px;
+}
+
+.org-datetime__time-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--primary-600);
+}
+
+.org-datetime__time-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.org-datetime__time-copy strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.org-datetime__time-copy small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.org-datetime__time-controls {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+}
+
+.org-datetime__time-controls .org-calendar-select__trigger {
+  min-width: 0;
+  justify-content: center;
+  padding-inline: 8px;
+}
+
+.org-datetime__time-controls .org-calendar-select__trigger > span {
+  text-align: center;
+}
+
+.org-datetime__time-controls .org-calendar-select__menu {
+  width: 100%;
+  min-width: 74px;
+}
+
+.org-datetime__time-separator {
+  color: var(--text-soft);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.org-datetime__footer {
+  align-items: center;
+}
+
+.org-datetime__footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.org-calendar__footer button.org-calendar__apply {
+  min-width: 68px;
+  background: var(--primary-500);
+  padding-inline: 14px;
+  color: #fff;
+}
+
+.org-calendar__footer button.org-calendar__apply:hover:not(:disabled),
+.org-calendar__footer button.org-calendar__apply:focus-visible {
+  background: var(--primary-600);
+  color: #fff;
+}
+
+@media (max-width: 520px) {
+  .org-datetime__time {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .org-datetime__time-controls {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .org-datetime__time-controls .org-calendar-select__trigger {
+    height: 38px;
+  }
+}
+
+@media (max-width: 360px) {
+  .org-datetime__time {
+    gap: 7px;
+  }
+
+  .org-datetime__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .org-datetime__footer > button,
+  .org-datetime__footer-actions,
+  .org-datetime__footer-actions button {
+    width: 100%;
+  }
+
+  .org-datetime__footer-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Keep date-time hour/minute menus fully visible inside the picker. */
+.org-calendar-select__menu.is-top {
+  top: auto;
+  bottom: calc(100% + 6px);
+  transform-origin: bottom center;
+}
+
+.org-datetime__time-controls .org-calendar-select__menu {
+  z-index: 32;
+  max-height: min(176px, 28vh);
+}
+
+@media (max-width: 520px) {
+  .org-datetime__time-controls .org-calendar-select__menu {
+    max-height: min(164px, 26vh);
+  }
+}
+
+@media (max-height: 620px) {
+  .org-datetime__time-controls .org-calendar-select__menu {
+    max-height: min(144px, 24vh);
+  }
+}

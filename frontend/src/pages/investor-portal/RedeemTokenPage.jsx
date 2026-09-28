@@ -16,6 +16,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { investmentApi } from '@/api/investments';
 import { CurrencyAmount } from '@/components/common/CurrencyAmount';
+import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import {
   InvestorTokenActionHeader,
   InvestorTokenIdentityCard,
@@ -52,6 +53,7 @@ import {
 } from '@/services/investor/investorTokenRedemptionRecoveryStore';
 import { createLocalId } from '@/utils/createLocalId';
 import { getApiFieldErrors, getErrorMessage, sanitizeUserFacingMessage } from '@/utils/error';
+import { formatDecimalForDisplay, multiplyDecimalStrings } from '@/utils/currency';
 import { getInvestmentActionContext } from '@/utils/investmentPurchase';
 import { resolveCurrentTokenPriceExact } from '@/utils/tokenPrice';
 import { transactionExplorerName, transactionExplorerUrl } from '@/utils/blockExplorer';
@@ -151,38 +153,6 @@ const formatExactTokenAmount = (value, fallback = '—') => {
   const [whole, fraction] = normalized.split('.');
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return fraction ? `${grouped}.${fraction}` : grouped;
-};
-
-const decimalParts = (value) => {
-  const normalized = canonicalDecimal(value);
-  if (!normalized || !/^\d+(?:\.\d+)?$/.test(normalized)) return null;
-  const [whole, fraction = ''] = normalized.split('.');
-  return { digits: BigInt(`${whole}${fraction}`), scale: fraction.length };
-};
-
-const formatScaledDecimal = (raw, scale, maximumFractionDigits = 2) => {
-  const targetScale = Math.max(0, maximumFractionDigits);
-  let value = raw;
-  let currentScale = scale;
-
-  if (currentScale > targetScale) {
-    const divisor = 10n ** BigInt(currentScale - targetScale);
-    value = (value + divisor / 2n) / divisor;
-    currentScale = targetScale;
-  }
-
-  const digits = value.toString().padStart(currentScale + 1, '0');
-  const whole = currentScale ? digits.slice(0, -currentScale) || '0' : digits;
-  const fraction = currentScale ? digits.slice(-currentScale).replace(/0+$/, '') : '';
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return fraction ? `${grouped}.${fraction}` : grouped;
-};
-
-const multiplyDecimalForDisplay = (left, right, maximumFractionDigits = 2) => {
-  const a = decimalParts(left);
-  const b = decimalParts(right);
-  if (!a || !b) return '';
-  return formatScaledDecimal(a.digits * b.digits, a.scale + b.scale, maximumFractionDigits);
 };
 
 const investorRedemptionStatusMeta = (status) => {
@@ -596,10 +566,16 @@ export default function RedeemTokenPage({
     return '';
   }, [amount, serverAmountError, token?.symbol, tokenDecimals, tokenWalletBalanceRaw, validateAgainstBalance]);
 
-  const estimatedValue = canonicalDecimal(redemptionFunding?.paymentAmountFormatted)
-    || (normalizedAmount && tokenPriceExact
-      ? multiplyDecimalForDisplay(normalizedAmount, tokenPriceExact, 2)
-      : '');
+  const fundingPaymentExact = canonicalDecimal(redemptionFunding?.paymentAmountFormatted);
+  const estimatedValueExact = isPositiveDecimal(fundingPaymentExact)
+    ? fundingPaymentExact
+    : isPositiveDecimal(normalizedAmount) && isPositiveDecimal(tokenPriceExact)
+      ? multiplyDecimalStrings(normalizedAmount, tokenPriceExact)
+      : '';
+  const estimatedValueDisplay = formatDecimalForDisplay(estimatedValueExact);
+  const settlementSymbol = String(
+    redemptionFunding?.paymentTokenSymbol || token?.currency || '',
+  ).trim().toUpperCase();
 
   const canStartOrAuthorize = Boolean(
     walletGuard.ready
@@ -623,10 +599,22 @@ export default function RedeemTokenPage({
     if (!next || typeof next !== 'object') return null;
     setRedemption(next);
     const nextAmount = canonicalDecimal(next?.tokenAmount || fallbackAmount);
-    if (nextAmount) setAmount(nextAmount);
+    const nextStatus = normalizeStatus(next?.status);
+    const completed = nextStatus === 'COMPLETED';
+
+    if (completed) {
+      // A completed redemption belongs in history, not in the next request form.
+      // Clear the active amount so the investor always starts a new redemption
+      // intentionally instead of seeing or accidentally reusing the old value.
+      setAmount('');
+      setServerAmountError('');
+      setRedemptionFunding(null);
+    } else if (nextAmount) {
+      setAmount(nextAmount);
+    }
 
     const uid = redemptionUidOf(next);
-    if (uid) {
+    if (uid && !completed) {
       persistRecovery({
         tokenUid: clean(next?.tokenUid) || tokenUid,
         redemptionUid: uid,
@@ -634,7 +622,7 @@ export default function RedeemTokenPage({
       });
     }
 
-    if (uid && normalizeStatus(next?.status) === 'COMPLETED') {
+    if (uid && completed) {
       clearInvestorTokenRedemptionRecovery(interestUid);
       setSubmittedRedemptionHash('');
       listObservedWalletTransactions({ tokenUid: clean(next?.tokenUid) || tokenUid, expectedAction: 'REDEMPTION', interestUid })
@@ -664,6 +652,9 @@ export default function RedeemTokenPage({
     clearInvestorTokenRedemptionRecovery(interestUid);
     setSubmittedRedemptionHash('');
     setFlowError('');
+    setServerAmountError('');
+    setAmount('');
+    setRedemptionFunding(null);
     setRedemption((current) => (current ? {
       ...current,
       status: 'COMPLETED',
@@ -1356,8 +1347,14 @@ export default function RedeemTokenPage({
             <div className="investor-token-action-calculation">
               <span>Estimated payment token you will receive</span>
               <strong>
-                {estimatedValue ? (
-                  <CurrencyAmount symbol={redemptionFunding?.paymentTokenSymbol || token.currency || ''}>{estimatedValue}</CurrencyAmount>
+                {estimatedValueExact ? (
+                  <CurrencyAmount
+                    symbol={settlementSymbol}
+                    title={estimatedValueDisplay.isAbbreviated ? `${estimatedValueDisplay.exact} ${settlementSymbol}` : undefined}
+                    ariaLabel={estimatedValueDisplay.isAbbreviated ? `${estimatedValueDisplay.exact} ${settlementSymbol}` : undefined}
+                  >
+                    {estimatedValueDisplay.display}
+                  </CurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
@@ -1399,7 +1396,9 @@ export default function RedeemTokenPage({
               <span>{activeRedemption ? 'Price used' : 'Current price per unit'}</span>
               <strong>
                 {tokenPriceExact ? (
-                  <CurrencyAmount symbol={redemptionFunding?.paymentTokenSymbol || token.currency || ''}>{formatExactTokenAmount(tokenPriceExact)}</CurrencyAmount>
+                  <CurrencyAmount symbol={settlementSymbol}>
+                    <TokenPriceValue value={tokenPriceExact} />
+                  </CurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
@@ -1407,8 +1406,14 @@ export default function RedeemTokenPage({
             <div className="investor-token-order-row investor-token-order-row--primary">
               <span>Estimated payment token you receive</span>
               <strong>
-                {estimatedValue ? (
-                  <CurrencyAmount symbol={redemptionFunding?.paymentTokenSymbol || token.currency || ''}>{estimatedValue}</CurrencyAmount>
+                {estimatedValueExact ? (
+                  <CurrencyAmount
+                    symbol={settlementSymbol}
+                    title={estimatedValueDisplay.isAbbreviated ? `${estimatedValueDisplay.exact} ${settlementSymbol}` : undefined}
+                    ariaLabel={estimatedValueDisplay.isAbbreviated ? `${estimatedValueDisplay.exact} ${settlementSymbol}` : undefined}
+                  >
+                    {estimatedValueDisplay.display}
+                  </CurrencyAmount>
                 ) : '—'}
               </strong>
             </div>

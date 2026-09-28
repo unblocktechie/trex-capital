@@ -16,6 +16,7 @@ const tokenName = Joi.string()
   });
 
 const tokenInformation = Joi.object({
+  chainUid: uid,
   tokenName,
   tokenSymbol: Joi.string().trim().uppercase().pattern(/^[A-Z0-9]{2,10}$/).allow('', null).messages({
     'string.pattern.base': 'tokenSymbol must contain 2 to 10 uppercase letters or numbers.',

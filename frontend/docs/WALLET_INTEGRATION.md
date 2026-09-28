@@ -6,7 +6,7 @@ The organization review step now requires a connected issuer wallet before the f
 
 1. The final review page shows **Connect Wallet** instead of **Submit Application**.
 2. The wallet modal supports MetaMask and WalletConnect.
-3. The configured organization network is selected during connection. If the wallet is on another network, the UI requires a switch to Sepolia before submission.
+3. The user selects an active backend-provided network. The frontend loads its runtime configuration and requires the wallet to match the returned `chainId` before submission.
 4. After connection, the navbar shows the shortened address (`0x123...abcde`) and native-token balance.
 5. The final submit modal explains that this address becomes the primary organization wallet for token creation, smart-contract deployment, and issuer operations.
 6. The user must explicitly acknowledge that message before submission.
@@ -14,20 +14,14 @@ The organization review step now requires a connected issuer wallet before the f
 
 ## Environment configuration
 
+Only generic wallet configuration remains in the frontend environment:
+
 ```env
 # Required for WalletConnect QR/mobile support.
 VITE_WALLETCONNECT_PROJECT_ID=
-
-# Network required at organization submission time.
-VITE_WEB3_DEFAULT_CHAIN=sepolia
-
-# Sepolia is the only network available in the organization wallet flow.
-VITE_WEB3_ENABLED_CHAINS=sepolia
-
-VITE_SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
 ```
 
-Create a WalletConnect/Reown project ID and allowlist every frontend domain used by the application. This organization flow is intentionally restricted to Sepolia; Ethereum mainnet is not exposed in the connector or network selector.
+Supported networks are loaded from `GET /api/v1/chains`. The selected network's RPC, explorer, native currency, confirmations, contract suite, and payment-token catalogue are loaded from `GET /api/v1/chains/{chainUid}/config`. Do not add chain-specific RPC or contract-address `VITE_*` variables.
 
 ## Backend submit contract
 
@@ -41,7 +35,8 @@ Content-Type: application/json
 
 ```json
 {
-  "walletAddress": "0x..."
+  "walletAddress": "0x...",
+  "chainUid": "60000000-0000-4000-8000-000000000001"
 }
 ```
 

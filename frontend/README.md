@@ -13,15 +13,15 @@ A responsive React application for issuers and investors to access compliant dig
 - Responsive layouts for desktop, laptop, tablet, mobile and narrow mobile screens
 - Guided issuer dashboard, identity, compliance and investor-management modules
 - Backend-powered organization KYB onboarding with server drafts, location UIDs, UBOs, document vault and final submission
-- Wagmi-powered MetaMask and WalletConnect organization wallet flow restricted to Sepolia testnet
+- API-driven multichain MetaMask/WalletConnect flows with per-user network access and per-chain ONCHAINID state
+
+## Multichain network access
+
+`GET /api/v1/chains` is loaded before the wallet provider is created. Issuer and investor onboarding submit the selected `chainUid`, authenticated users can unlock additional networks from `/app/networks`, and token creation only exposes unlocked networks. Payment-token selection refreshes whenever the asset chain changes. Admins can manage network and payment-token catalogues from `/admin/networks`. Existing networks are never deleted from the admin UI: only Public RPC URL, Explorer URL, fallback internal RPC URLs, active/inactive state, and the network image can be changed after creation; chain-master changes remain tracked by the backend audit table. Payment-token purchase/redemption capabilities are omitted entirely from edit requests, and their creation controls are intentionally not exposed in the admin form. Network and payment-token images can be added on create or replaced later. The admin network screen uses responsive tabular management, custom styled search filters, a custom network selector for payment tokens, wide sectioned Add/Edit Network dialogs on larger screens, and a final read-only network review dialog before the create API is called.
 
 ## Authentication backend
 
-Authentication requests use:
-
-```text
-http://192.168.29.90:3000/api/v1
-```
+Authentication requests use the API selected by the active frontend environment profile (`VITE_API_BASE_URL` + `VITE_API_VERSION`). The default local `.env` still points to the development backend, while `.env.testnet` and `.env.mainnet` provide explicit deployable profiles.
 
 The signup form sends the backend contract defined in the supplied Postman collection:
 
@@ -38,16 +38,27 @@ For an investor account, `isIssuer` is `false`.
 
 See [`docs/AUTH_BACKEND_INTEGRATION.md`](docs/AUTH_BACKEND_INTEGRATION.md) for endpoint, token-storage, CORS and email-link details.
 
-Organization onboarding integration is documented in [`docs/ORGANIZATION_BACKEND_INTEGRATION.md`](docs/ORGANIZATION_BACKEND_INTEGRATION.md). Wallet setup, environment variables, and the backend wallet contract are documented in [`docs/WALLET_INTEGRATION.md`](docs/WALLET_INTEGRATION.md).
+Organization onboarding integration is documented in [`docs/ORGANIZATION_BACKEND_INTEGRATION.md`](docs/ORGANIZATION_BACKEND_INTEGRATION.md). The current multichain frontend contract is documented in [`docs/FRONTEND_MULTICHAIN_INTEGRATION.md`](docs/FRONTEND_MULTICHAIN_INTEGRATION.md). Supported networks, public RPC metadata, chain contracts, payment tokens, confirmations, and per-user network access are loaded from the backend rather than frontend chain constants.
 
 ## Run locally
 
-Use Node.js `22.22.1` or newer, add a WalletConnect project ID to `.env` when QR/mobile wallet support is required, then run:
+Use Node.js `22.22.1` or newer, add a WalletConnect project ID to `.env` or `.env.local` when QR/mobile wallet support is required, then run:
 
 ```bash
 npm install
 npm run dev
 ```
+
+The frontend also has explicit browser-safe deployment profiles:
+
+```bash
+npm run dev:testnet
+npm run dev:mainnet
+npm run build:testnet
+npm run build:mainnet
+```
+
+`.env.testnet` and `.env.mainnet` select frontend/API/branding settings only. Supported networks, public RPC metadata, chain contracts, compliance modules, confirmations, and payment tokens still come from `GET /api/v1/chains` and `GET /api/v1/chains/{chainUid}/config`; do not add chain-specific addresses to either profile.
 
 `npm install` generates the dependency lockfile for the newly added Wagmi, Viem, MetaMask Connect, and WalletConnect packages.
 
@@ -58,7 +69,7 @@ npm run lint
 npm run build
 ```
 
-The browser running the frontend must be able to reach `192.168.29.90:3000`, and the backend must allow the frontend origin through CORS.
+The backend selected by the active environment profile must allow the frontend origin through CORS.
 
 ## Email verification links
 
@@ -90,9 +101,9 @@ The five-step token wizard is connected to the authenticated `/api/v1/tokens/me`
 
 - `GET /token-options` and `GET /locations/countries` load backend claim topics and country UIDs.
 - `GET /tokens/me` restores the current issuer token form and completed backend step. Browser-local token drafts are not used.
-- Step 1 sends multipart token information and the validated token image to `/tokens/me/information`.
+- Step 1 sends the selected unlocked `chainUid`, chain-scoped payment token, multipart token information, and validated token image to `/tokens/me/information`.
 - Step 2 renders the claim topics returned by `/token-options` and submits their backend UIDs; Steps 3–4 save compliance rules and governance wallets.
-- Step 5 calls `/tokens/me/submit` only after all earlier API saves, local validation, wallet authorization, and Sepolia checks pass.
+- Step 5 calls `/tokens/me/submit` only after all earlier API saves, local validation, wallet authorization, and the wallet is on the token’s stored chain.
 
 The current backend contract marks a successful submission as `readyToDeploy`; it does not yet return deployed smart-contract addresses. The UI therefore presents a truthful ready-to-deploy success state and keeps the submitted configuration read-only.
 
@@ -102,10 +113,23 @@ Token wizard values are kept only in memory while the current page session is ac
 
 ## MetaMask deployment transport
 
-Desktop MetaMask deployment uses the injected browser-extension provider. Public Sepolia reads and transaction confirmation use the configured RPC, while only signed writes use the wallet provider. See `docs/METAMASK_TRANSPORT_TIMEOUT_FIX.md`.
+Desktop MetaMask deployment uses the injected browser-extension provider. Public reads and transaction confirmation use the selected chain’s backend-provided public RPC, while signed writes stay in the wallet provider. The frontend switches/adds wallet networks from the chain catalogue and never uses an internal backend RPC URL.
 
 ## Investor dashboard live API
 
 The Investor Dashboard now uses the authenticated investor profile, investment interests, invitation inbox, and deployed-token catalogue APIs instead of hardcoded dashboard records. Counts, statuses, recent rows, registered-asset state, profile/ONCHAINID details, and marketplace previews all come from current backend responses. Partial API failures preserve successfully loaded sections and expose a retry action.
 
 See [`docs/INVESTOR_DASHBOARD_LIVE_API.md`](docs/INVESTOR_DASHBOARD_LIVE_API.md) for the exact dashboard data sources and state mapping.
+
+
+## Multichain application network
+
+Issuer and investor sessions now keep an explicit per-user active network. The header network selector lists the user's usable chain contexts and keeps wallet actions aligned with that selection. Account/onboarding chain data is preferred during initialization, while chain-specific token, investment, claim, redemption, registry, and deployment actions can temporarily establish the required chain explicitly. A connected wallet on another supported chain no longer causes the application to silently fall back to the platform default.
+
+If the wallet is connected to a different chain than the selected application network, the header network control and wallet control expose a switch action. Unknown wallet chains are added with the public chain metadata loaded from `GET /api/v1/chains`; internal RPC URLs are never used by the wallet.
+
+## Latest responsive admin/header refinements
+
+- Payment-token deletion now uses an in-application confirmation dialog instead of the browser `confirm()` prompt. The dialog identifies the selected token/network, explains in-use backend protection, and keeps destructive/cancel actions usable on mobile.
+- The authenticated Issuer/Investor header uses a compact single-row mobile layout for navigation, active network, wallet, and account controls. Network menus are viewport-anchored on small screens so they do not clip or overflow.
+

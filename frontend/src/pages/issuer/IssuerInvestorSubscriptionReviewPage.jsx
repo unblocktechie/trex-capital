@@ -57,7 +57,7 @@ const filenameFromDisposition = (value, fallback) => {
 const REGISTRY_STATUS_POLL_INTERVAL_MS = 5_000;
 const REGISTRY_REQUIRED_CONFIRMATIONS = 12;
 const REGISTRY_SUCCESS_MESSAGE = 'Final approval is complete. This investor can now invest in this asset.';
-const REGISTRY_PENDING_MESSAGE = 'Final approval was submitted. We are confirming the investor’s access now.';
+const REGISTRY_PENDING_MESSAGE = 'Final approval is being completed. Please wait a moment. No further action is needed.';
 const REGISTRY_INVITE_TOOLTIP = 'Open Contact Us with this investor and application context attached.';
 const REGISTRY_TEMPORARY_ERROR_CODES = new Set([
   'TRANSACTION_NOT_FOUND',
@@ -90,28 +90,23 @@ const registryErrorCode = (registration) => {
   }
   return '';
 };
-const isRegistryTemporaryFailure = (registration) =>
-  REGISTRY_TEMPORARY_ERROR_CODES.has(registryErrorCode(registration));
 const isRegistryTerminalFailure = (registration) =>
   REGISTRY_TERMINAL_ERROR_CODES.has(registryErrorCode(registration));
 const registryFailureMessage = (code, fallback = '') => {
   switch (normalizeRegistryStatus(code)) {
     case 'TRANSACTION_FAILED':
-      return 'Registration transaction failed. Please retry the transaction.';
+      return 'We could not complete final approval. Please try again.';
     case 'INVALID_REGISTRY_CONTRACT':
-      return 'The registration transaction used an invalid registry contract. Please retry the transaction.';
+      return 'Final approval could not be completed. Please try again or contact support if the issue continues.';
     case 'UNAUTHORIZED_TRANSACTION_SENDER':
-      return 'The registration transaction was sent from an unauthorized wallet. Please retry with the approved organization wallet.';
+      return 'Connect the approved organization account and try final approval again.';
     case 'REGISTRY_PARAMETERS_MISMATCH':
-      return 'The registration transaction did not match the pending registration details. Please retry the transaction.';
+      return 'Final approval could not be completed. Refresh the application and try again.';
     case 'TRANSACTION_NOT_FOUND':
-      return 'The registration transaction has not been found yet. Please check the status again.';
     case 'INSUFFICIENT_CONFIRMATIONS':
-      return 'The registration transaction is waiting for more confirmations. Please check the status again.';
     case 'RPC_UNAVAILABLE':
-      return 'Registration status is temporarily unavailable. Please check the status again.';
     case 'SYNCING':
-      return 'Registration verification is still syncing. Please check the status again.';
+      return REGISTRY_PENDING_MESSAGE;
     default:
       return String(fallback || '').trim();
   }
@@ -121,7 +116,7 @@ const registryVerificationMessage = (registration) => registryFailureMessage(
   registration?.verificationMessage || registration?.errorMessage || registration?.message,
 );
 const hasRegistryVerificationFailure = (registration) =>
-  hasRegistryTransaction(registration) && Boolean(registryErrorCode(registration));
+  hasRegistryTransaction(registration) && isRegistryTerminalFailure(registration);
 
 const registryErrorDetails = (error) =>
   error?.response?.data?.error
@@ -151,11 +146,11 @@ const friendlyRegistryError = (error) => {
   const status = error?.response?.status;
   if (status === 403) return 'You do not have permission to approve this investor.';
   if (status === 409) return 'This application is not ready for investor approval yet. Refresh and try again.';
-  if (status === 422) return 'We could not confirm the registration yet. Please check the status again.';
+  if (status === 422) return REGISTRY_PENDING_MESSAGE;
   if (status === 503 || error?.code === 'ERR_NETWORK') {
-    return 'The investor-approval status is temporarily unavailable. Please try again in a few moments.';
+    return 'Final approval is taking a little longer than usual. We will keep checking automatically.';
   }
-  return 'Unable to complete investor approval right now. Please try again.';
+  return 'Unable to complete final approval right now. Please try again.';
 };
 
 
@@ -176,13 +171,13 @@ export default function IssuerInvestorSubscriptionReviewPage() {
   const [registryStatusLoading, setRegistryStatusLoading] = useState(false);
   const [registryActionLoading, setRegistryActionLoading] = useState(false);
   const [registryMessage, setRegistryMessage] = useState('');
-  const [registryConfirmationProgress, setRegistryConfirmationProgress] = useState({
+  const [, setRegistryConfirmationProgress] = useState({
     txHash: '',
     current: 0,
   });
   const registryPollTimeoutRef = useRef(null);
   const registryActionInFlightRef = useRef(false);
-  const wallet = useWalletConnection();
+  const wallet = useWalletConnection(request?.chainId || registryRegistration?.chainId);
   const {
     organization,
     isLoading: organizationLoading,
@@ -235,17 +230,6 @@ export default function IssuerInvestorSubscriptionReviewPage() {
     || historyHasClaimSubmitted;
   const claimVerified = !claimSubmitted && isClaimVerifiedStatus(request?.status);
   const registryInterestUid = request?.interestUid || requestId;
-  const registryTransactionHash = hasRegistryTransaction(registryRegistration)
-    ? registryRegistration.txHash
-    : '';
-  const registryConfirmationCount = registryConfirmationProgress.txHash === registryTransactionHash
-    ? registryConfirmationProgress.current
-    : 0;
-  const registryConfirmationsComplete = registryConfirmationCount >= REGISTRY_REQUIRED_CONFIRMATIONS;
-  const registryConfirmationPercentage = Math.min(
-    100,
-    Math.round((registryConfirmationCount / REGISTRY_REQUIRED_CONFIRMATIONS) * 100),
-  );
   const organizationWalletAddress = String(organization?.walletAddress || '').trim();
   const organizationWalletIsAvailable = isAddress(organizationWalletAddress, { strict: false });
   const connectedWalletIsOrganizationWallet = Boolean(
@@ -350,8 +334,8 @@ export default function IssuerInvestorSubscriptionReviewPage() {
       if (isRegistryVerificationError(error)) {
         const errorCode = registryErrorCodeFromError(error) || 'REGISTRATION_VERIFICATION_FAILED';
         // Keep the exact signed hash. Temporary verification failures continue using
-        // Check Status with the same hash. Terminal failures are surfaced explicitly so
-        // only the issuer's Retry Registration action can broadcast a new transaction.
+        // Keep using the same submitted approval while automatic status checks continue.
+        // Only a terminal failure exposes the explicit retry action.
         return {
           ...(serverRegistration || {}),
           registryOperationId: serverRegistration?.registryOperationId || recovery.registryOperationId,
@@ -407,7 +391,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
         if (isRegistryTerminalFailure(activeRegistration)) {
           setRegistryMessage(
             registryVerificationMessage(activeRegistration)
-              || 'Registration failed. Please retry the transaction.',
+              || 'Final approval could not be completed. Please try again.',
           );
           return;
         }
@@ -458,7 +442,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
           if (isRegistryTerminalFailure(activeRegistration)) {
             setRegistryMessage(
               registryVerificationMessage(activeRegistration)
-                || 'Registration failed. Please retry the transaction.',
+                || 'Final approval could not be completed. Please try again.',
             );
             return;
           }
@@ -557,7 +541,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
         stopRegistryPolling();
         setRegistryMessage(
           registryVerificationMessage(latest)
-            || 'Registration failed. Please retry the transaction.',
+            || 'Final approval could not be completed. Please try again.',
         );
         return latest;
       } else if (hasRegistryTransaction(latest)) {
@@ -587,7 +571,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
             stopRegistryPolling();
             setRegistryMessage(
               registryVerificationMessage(resumed)
-                || 'Registration failed. Please retry the transaction.',
+                || 'Final approval could not be completed. Please try again.',
             );
             return resumed;
           }
@@ -725,7 +709,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
 
   const confirmRegistryTransaction = async (registration) => {
     if (!hasRegistryTransaction(registration)) {
-      throw new Error('Final approval is not ready yet. Check the status again in a moment.');
+      throw new Error('Final approval is still being completed. Please wait a moment.');
     }
 
     // Preserve a known hash before Confirm as well as immediately after MetaMask. This
@@ -776,7 +760,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
       stopRegistryPolling();
       setRegistryMessage(
         registryVerificationMessage(nextRegistration)
-          || 'Registration failed. Please retry the transaction.',
+          || 'Final approval could not be completed. Please try again.',
       );
       return nextRegistration;
     }
@@ -833,16 +817,16 @@ export default function IssuerInvestorSubscriptionReviewPage() {
       }
 
       if (!retryRegistration?.registryOperationId) {
-        throw new Error('The existing registry operation is unavailable. Refresh and try again.');
+        throw new Error('We could not resume final approval. Refresh and try again.');
       }
       if (!organizationWalletIsAvailable) {
         throw new Error('We could not verify the approved organization account. Refresh your organization details before continuing.');
       }
       if (!wallet.isConnected || !wallet.connector || !wallet.address) {
-        throw new Error('Connect the approved organization account to retry registration.');
+        throw new Error('Connect the approved organization account and try final approval again.');
       }
       if (!connectedWalletIsOrganizationWallet) {
-        throw new Error('The connected account is not the approved organization account. Switch accounts to retry registration.');
+        throw new Error('The connected account is not the approved organization account. Switch accounts and try final approval again.');
       }
 
       const retryChainId = Number(retryRegistration?.chainId);
@@ -850,7 +834,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
         (chain) => chain.id === retryChainId,
       );
       if (!Number.isSafeInteger(retryChainId) || !supportedRetryChain) {
-        throw new Error('This registration uses a network that is not available in the application.');
+        throw new Error('Final approval is using a network that is not available in the application.');
       }
       if (wallet.chainId !== retryChainId) {
         await wallet.switchChain(retryChainId);
@@ -937,24 +921,24 @@ export default function IssuerInvestorSubscriptionReviewPage() {
         setRegistryMessage(REGISTRY_PENDING_MESSAGE);
         startRegistryPolling(registryInterestUid, pendingRegistration);
         if (recoveryStorageError) {
-          toast.warning('Registration was submitted, but browser recovery is unavailable. Keep this page open while it finishes.');
+          toast.warning('Final approval is still being completed. Please keep this page open for a moment.');
         } else if (error?.response?.status === 503 || error?.code === 'ERR_NETWORK') {
-          toast.info('Registration submitted. We will keep checking it automatically.');
+          toast.info('Final approval is being completed. No further action is needed.');
         }
         return;
       }
 
       if (isIssuerRegistryWalletRejection(error)) {
-        setRegistryMessage('Registration retry was cancelled. You can try again when ready.');
+        setRegistryMessage('Final approval was cancelled. You can try again when ready.');
         return;
       }
 
       const message = error?.response ? friendlyRegistryError(error) : getErrorMessage(
         error,
-        'Unable to retry the registration right now. Please try again.',
+        'Unable to retry final approval right now. Please try again.',
       );
       setRegistryMessage(message);
-      toast.error(message);
+      toast.error('Final approval could not be completed', { description: message });
     } finally {
       setRegistryActionLoading(false);
       registryActionInFlightRef.current = false;
@@ -976,14 +960,14 @@ export default function IssuerInvestorSubscriptionReviewPage() {
       if (isRegistryTerminalFailure(preparedRegistration)) {
         setRegistryMessage(
           registryVerificationMessage(preparedRegistration)
-            || 'Registration failed. Please retry the transaction.',
+            || 'Final approval could not be completed. Please try again.',
         );
         return;
       }
 
       // Any existing hash belongs to the current operation. Confirm that same hash or
       // poll its status for temporary verification states. Terminal verification failures
-      // are handled only by the explicit Retry Registration action above.
+      // are handled only by the explicit final-approval retry action above.
       if (hasRegistryTransaction(preparedRegistration)) {
         await confirmRegistryTransaction(preparedRegistration);
         return;
@@ -1027,7 +1011,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
       }
 
       if (preparedRegistration?.txHash && !hasRegistryTransaction(preparedRegistration)) {
-        throw new Error('We could not safely confirm the existing approval. Check the status before trying again.');
+        throw new Error('Final approval is still being completed. Please wait a moment before trying again.');
       }
 
       const preparedChainId = Number(preparedRegistration?.chainId);
@@ -1035,7 +1019,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
         (chain) => chain.id === preparedChainId,
       );
       if (!Number.isSafeInteger(preparedChainId) || !supportedPreparedChain) {
-        throw new Error('This registration uses a network that is not available in the application.');
+        throw new Error('Final approval is using a network that is not available in the application.');
       }
       if (wallet.chainId !== preparedChainId) {
         await wallet.switchChain(preparedChainId);
@@ -1111,7 +1095,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
           toast.info(verificationMessage);
         }
         // Never open MetaMask automatically after verification. Temporary failures keep
-        // using Check Status; terminal failures require an explicit Retry Registration.
+        // through automatic status checks; terminal failures require an explicit retry.
         return;
       }
 
@@ -1126,9 +1110,9 @@ export default function IssuerInvestorSubscriptionReviewPage() {
         setRegistryMessage(REGISTRY_PENDING_MESSAGE);
         startRegistryPolling(registryInterestUid, pendingRegistration);
         if (recoveryStorageError) {
-          toast.warning('Final approval was submitted, but browser recovery is unavailable. Keep this page open while it finishes.');
+          toast.warning('Final approval is still being completed. Please keep this page open for a moment.');
         } else if (error?.response?.status === 503 || error?.code === 'ERR_NETWORK') {
-          toast.info('Final approval submitted. We will keep checking it automatically.');
+          toast.info('Final approval is being completed. No further action is needed.');
         }
         return;
       }
@@ -1140,10 +1124,10 @@ export default function IssuerInvestorSubscriptionReviewPage() {
 
       const message = error?.response ? friendlyRegistryError(error) : getErrorMessage(
         error,
-        'Unable to complete the registration right now. Please try again.',
+        'Unable to complete final approval right now. Please try again.',
       );
       setRegistryMessage(message);
-      toast.error(message);
+      toast.error('Final approval could not be completed', { description: message });
     } finally {
       setRegistryActionLoading(false);
       registryActionInFlightRef.current = false;
@@ -1177,7 +1161,6 @@ export default function IssuerInvestorSubscriptionReviewPage() {
   });
   const submissionNumber = request.submissionNumber || history?.timeline?.reduce((max, event) => Math.max(max, Number(event?.submissionNumber) || 0), 0) || null;
   const registryRetryRequired = isRegistryTerminalFailure(registryRegistration);
-  const registryTemporaryFailure = isRegistryTemporaryFailure(registryRegistration);
   const registryTransactionPending = hasRegistryTransaction(registryRegistration)
     && !isRegistryConfirmed(registryRegistration)
     && !registryRetryRequired;
@@ -1281,13 +1264,13 @@ export default function IssuerInvestorSubscriptionReviewPage() {
                       disabled={organizationLoading || !connectedWalletIsOrganizationWallet}
                       onClick={() => void handleRegistryRetry()}
                     >
-                      Retry Registration
+                      Try Final Approval Again
                     </Button>
                     {!connectedWalletIsOrganizationWallet ? (
                       <div className="issuer-registry-wallet-gate" role="status">
                         <div className="issuer-registry-wallet-gate__message">
                           <WalletCards size={16} aria-hidden="true" />
-                          <span>{registryWalletGateMessage || 'Connect the approved organization account to retry registration.'}</span>
+                          <span>{registryWalletGateMessage || 'Connect the approved organization account and try final approval again.'}</span>
                         </div>
                         {!organizationLoading ? (
                           organizationWalletIsAvailable ? (
@@ -1315,19 +1298,23 @@ export default function IssuerInvestorSubscriptionReviewPage() {
                       </div>
                     ) : null}
                   </>
-                ) : hasRegistryTransaction(registryRegistration) || connectedWalletIsOrganizationWallet ? (
+                ) : registryTransactionPending ? (
+                  <div className="issuer-registry-processing" role="status" aria-live="polite">
+                    <RefreshCw className="spinner" size={18} aria-hidden="true" />
+                    <div>
+                      <strong>Completing final approval</strong>
+                      <span>Please wait a moment. No further action is needed.</span>
+                    </div>
+                  </div>
+                ) : connectedWalletIsOrganizationWallet ? (
                   <Button
                     type="button"
                     variant="primary"
-                    icon={hasRegistryTransaction(registryRegistration) ? RefreshCw : UserPlus}
+                    icon={UserPlus}
                     loading={registryStatusLoading || registryActionLoading}
-                    disabled={registryTransactionPending
-                      && !registryConfirmationsComplete
-                      && !registryTemporaryFailure
-                      && !hasRegistryVerificationFailure(registryRegistration)}
                     onClick={() => void handleRegistryAction()}
                   >
-                    {hasRegistryTransaction(registryRegistration) ? 'Check Status' : 'Complete Final Approval'}
+                    Complete Final Approval
                   </Button>
                 ) : (
                   <div className="issuer-registry-wallet-gate" role="status">
@@ -1360,25 +1347,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
                     ) : null}
                   </div>
                 )}
-                {registryTransactionPending ? (
-                  <div className="issuer-registry-confirmation-progress">
-                    <div className="issuer-registry-confirmation-progress__label">
-                      <strong>{registryConfirmationPercentage}%</strong>
-                    </div>
-                    <div
-                      className="issuer-registry-confirmation-progress__track"
-                      role="progressbar"
-                      aria-label="Final approval confirmation progress"
-                      aria-valuemin={0}
-                      aria-valuemax={REGISTRY_REQUIRED_CONFIRMATIONS}
-                      aria-valuenow={registryConfirmationCount}
-                      aria-valuetext={`${registryConfirmationCount} of ${REGISTRY_REQUIRED_CONFIRMATIONS} confirmations, ${registryConfirmationPercentage}%`}
-                    >
-                      <span style={{ width: `${registryConfirmationPercentage}%` }} />
-                    </div>
-                  </div>
-                ) : null}
-                {registryMessage ? (
+                {!registryTransactionPending && registryMessage ? (
                   <span className="issuer-registry-action__message" role="status">
                     {registryVerificationMessage(registryRegistration) || registryMessage}
                   </span>
@@ -1460,6 +1429,7 @@ export default function IssuerInvestorSubscriptionReviewPage() {
         requiredClaimTopics={requiredClaimTopics}
         investorName={request.investorName}
         assetName={[request.tokenName, request.tokenSymbol ? `(${request.tokenSymbol})` : ''].filter(Boolean).join(' ')}
+        chainId={request.chainId || request.token?.chainId}
         onVerified={handleClaimsVerified}
       />
       <ContactSupportDialog

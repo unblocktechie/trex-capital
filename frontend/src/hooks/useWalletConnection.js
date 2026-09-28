@@ -8,6 +8,8 @@ import {
 } from 'wagmi';
 import { useState } from 'react';
 import { web3Config } from '@/config/web3';
+import { useAuthStore } from '@/store/auth.store';
+import { networkUserKey, useNetworkStore } from '@/store/network.store';
 import { formatWalletBalance, shortenWalletAddress } from '@/utils/wallet';
 
 const getErrorCode = (error) =>
@@ -76,13 +78,24 @@ async function requestProviderChainSwitch(connector, chain) {
   return chain;
 }
 
-export function useWalletConnection() {
+export function useWalletConnection(requiredChainId) {
   const connection = useConnection();
   const connectors = useConnectors();
+  const user = useAuthStore((state) => state.user);
+  const userKey = networkUserKey(user);
+  const activeChainId = useNetworkStore((state) => state.activeChainByUser[userKey] || null);
   const connectMutation = useConnect({ mutation: { meta: { silent: true } } });
   const disconnectMutation = useDisconnect({ mutation: { meta: { silent: true } } });
   const switchMutation = useSwitchChain({ mutation: { meta: { silent: true } } });
   const [providerSwitchingChainId, setProviderSwitchingChainId] = useState();
+  const connectedSupportedChainId = web3Config.getChainById(connection.chainId)?.id || null;
+  // Chain precedence is contextual action -> user's active application network ->
+  // already-connected supported wallet network -> platform default. The connected
+  // chain fallback prevents a valid ARC/other-chain session from briefly being
+  // treated as Sepolia while persisted/account network context is still loading.
+  const requestedChainId = Number(requiredChainId) || Number(activeChainId) || connectedSupportedChainId || null;
+  const requiredChain = web3Config.getChainById(requestedChainId) || web3Config.requiredChain;
+
   const isSupportedChain = web3Config.supportedChains.some(
     (chain) => chain.id === connection.chainId,
   );
@@ -132,11 +145,11 @@ export function useWalletConnection() {
     try {
       const result = await connectMutation.mutateAsync({
         connector,
-        chainId: web3Config.requiredChain.id,
+        chainId: requiredChain.id,
       });
 
-      if (result.chainId !== web3Config.requiredChain.id) {
-        await requestProviderChainSwitch(connector, web3Config.requiredChain);
+      if (result.chainId !== requiredChain.id) {
+        await requestProviderChainSwitch(connector, requiredChain);
       }
 
       return result;
@@ -154,7 +167,7 @@ export function useWalletConnection() {
     });
 
   const isCorrectNetwork =
-    connection.isConnected && connection.chainId === web3Config.requiredChain.id;
+    connection.isConnected && connection.chainId === requiredChain.id;
 
   return {
     ...connection,
@@ -162,7 +175,7 @@ export function useWalletConnection() {
     connect,
     disconnect,
     switchChain,
-    requiredChain: web3Config.requiredChain,
+    requiredChain,
     supportedChains: web3Config.supportedChains,
     walletConnectConfigured: web3Config.walletConnectConfigured,
     isCorrectNetwork,

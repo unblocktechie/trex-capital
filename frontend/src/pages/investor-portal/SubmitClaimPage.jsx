@@ -229,9 +229,10 @@ const backendRequestId = (error) =>
       '',
   ).trim();
 
-const transactionExplorerUrl = (txHash) => {
+const transactionExplorerUrl = (txHash, chainId) => {
   if (!validTransactionHash(txHash)) return '';
-  const baseUrl = web3Config.requiredChain?.blockExplorers?.default?.url;
+  const chain = web3Config.getChainById(chainId) || web3Config.requiredChain;
+  const baseUrl = chain?.blockExplorers?.default?.url;
   return baseUrl ? `${baseUrl}/tx/${txHash}` : '';
 };
 
@@ -245,7 +246,6 @@ export default function SubmitClaimPage() {
   const { interestUid } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const wallet = useWalletConnection();
   const [application, setApplication] = useState(null);
   const [token, setToken] = useState(null);
   const [claimContext, setClaimContext] = useState(null);
@@ -253,6 +253,15 @@ export default function SubmitClaimPage() {
   const [claimUi, setClaimUi] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const claimChainId = Number(
+    claimContext?.chainId ||
+      token?.chainId ||
+      token?.deployment?.chainId ||
+      application?.chainId ||
+      application?.interest?.chainId ||
+      0,
+  ) || undefined;
+  const wallet = useWalletConnection(claimChainId);
   const submissionLocksRef = useRef(new Set());
   const verificationLocksRef = useRef(new Set());
   const retryLocksRef = useRef(new Set());
@@ -930,7 +939,7 @@ export default function SubmitClaimPage() {
       return;
     }
 
-    if (!wallet.isCorrectNetwork || wallet.chainId !== web3Config.requiredChain.id) {
+    if (claimChainId && (!wallet.isCorrectNetwork || wallet.chainId !== claimChainId)) {
       updateClaimUi(claimId, {
         status: CLAIM_UI_STATUS.PENDING,
         noticeTitle: 'Wrong network',
@@ -967,6 +976,19 @@ export default function SubmitClaimPage() {
         error.code = 'INVALID_PREPARE_RESPONSE';
         throw error;
       }
+
+      const preparedChainId = Number(preparedClaim?.chainId || claimChainId || wallet.requiredChain?.id || 0) || undefined;
+      if (preparedChainId && wallet.chainId !== preparedChainId) {
+        try {
+          await wallet.switchChain(preparedChainId);
+        } catch (switchError) {
+          const error = new Error('Switch to the network required for this verification, then try again.');
+          error.code = 'WRONG_WALLET_NETWORK';
+          error.cause = switchError;
+          throw error;
+        }
+      }
+      updateClaimUi(claimId, { chainId: preparedChainId });
 
       const preparedStatusValue = normalizeStatus(preparedClaim?.status);
       if (preparedClaim?.alreadyConfirmed === true || preparedStatusValue === 'confirmed') {
@@ -1036,6 +1058,7 @@ export default function SubmitClaimPage() {
         connectedAddress: wallet.address,
         registeredWalletAddress: registeredWallet,
         preparedClaim,
+        chainId: preparedClaim?.chainId || claimChainId || wallet.requiredChain?.id,
       });
 
       // Store the hash before any backend request. If the backend is unavailable,
@@ -1103,6 +1126,7 @@ export default function SubmitClaimPage() {
       submissionLocksRef.current.delete(claimId);
     }
   }, [
+    claimChainId,
     claimUi,
     interestUid,
     loadClaimContext,
@@ -1114,6 +1138,7 @@ export default function SubmitClaimPage() {
     wallet.connector,
     wallet.isConnected,
     wallet.isCorrectNetwork,
+    wallet.switchChain,
   ]);
 
   const handleClaimRetry = useCallback(async (claim) => {
@@ -1454,7 +1479,7 @@ export default function SubmitClaimPage() {
                 const isNotInitiated = normalizeStatus(claim?.status) === 'notinitiated';
                 const shouldRetryBeforeWallet = isFailed || (status === CLAIM_UI_STATUS.PENDING && !isNotInitiated);
                 const missingClaimId = !claimId;
-                const explorerUrl = transactionExplorerUrl(ui.txHash);
+                const explorerUrl = transactionExplorerUrl(ui.txHash, ui.chainId || claimChainId || wallet.chainId || wallet.requiredChain?.id);
 
                 return (
                   <Card
@@ -1644,7 +1669,7 @@ export default function SubmitClaimPage() {
           <Card className="submit-claim-network-card">
             <div className="submit-claim-network-card__title"><Info size={18} /><strong>About wallet approval</strong></div>
             <p>
-              Some verification checks may ask you to approve a secure action in your registered wallet. Simply follow the wallet prompt to continue. <small>Technical network: {web3Config.requiredChain.name}</small>
+              Some verification checks may ask you to approve a secure action in your registered wallet. Simply follow the wallet prompt to continue. <small>Technical network: {wallet.requiredChain.name}</small>
             </p>
           </Card>
 

@@ -1,4 +1,4 @@
-import { Building2, Briefcase, Coins, FileText, History, LayoutDashboard, Mail, RefreshCcw, Store, Users, UsersRound, WalletCards } from 'lucide-react';
+import { Building2, Briefcase, Coins, FileText, History, LayoutDashboard, Mail, Network, RefreshCcw, Store, Users, UsersRound, WalletCards } from 'lucide-react';
 import { PERMISSIONS, ROLES } from './permissions';
 import { ROUTES } from './routes';
 
@@ -21,6 +21,13 @@ export const navigationGroups = Object.freeze([
         permission: PERMISSIONS.dashboardView,
         dynamicOrganization: true,
         roles: [ROLES.issuer],
+      },
+      {
+        label: 'Network Access',
+        shortLabel: 'Networks',
+        to: ROUTES.chainAccess,
+        icon: Network,
+        permission: PERMISSIONS.dashboardView,
       },
       {
         label: 'Tokens',
@@ -113,6 +120,7 @@ export const routeMeta = Object.freeze({
     title: 'Organization',
     description: 'Verified company details and approved management access',
   },
+  [ROUTES.chainAccess]: { title: 'Network Access', description: 'Unlock and review the blockchain networks available to your account' },
   [ROUTES.createToken]: {
     title: 'Tokens',
     description: 'Guided investment asset setup and launch',

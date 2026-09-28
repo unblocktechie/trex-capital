@@ -13,8 +13,8 @@ Refreshing did not help because the failure was caused by missing controller met
 The frontend now resolves the Platform Controller in this order:
 
 1. Valid controller saved on the asset/application.
-2. Controller returned by the authoritative `/payment-tokens` catalogue row for the asset's saved payment token.
-3. The configured current platform controller (`VITE_TREX_PLATFORM_CONTROLLER_ADDRESS`) for older records that predate controller persistence.
+2. Controller returned by the authoritative selected-chain `paymentTokens` row for the asset's saved payment token.
+3. The selected chain configuration's current Platform Controller for older records that predate controller persistence.
 
 The payment-token address itself is still asset-authoritative and is not guessed from a symbol or legacy USDT field.
 

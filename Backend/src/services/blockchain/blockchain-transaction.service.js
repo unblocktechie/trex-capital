@@ -415,6 +415,7 @@ class BlockchainTransactionService {
     }
     const paymentAmountFormatted = ethers.formatUnits(paymentEvent.amountRaw, paymentTokenDecimals);
     return {
+      chainUid: token.chainUid || this.config.chainUid || null,
       chainId: Number(this.config.chainId), tokenUid: token.tokenUid, organizationUid: token.organizationUid,
       tokenAddress: ethers.getAddress(token.tokenAddress), controllerAddress,
       transactionHash: tx.hash.toLowerCase(), type: action, executionType, initiatedByUserUid: userUid || null,
@@ -443,6 +444,7 @@ class BlockchainTransactionService {
     })).find(Boolean);
     if (!transferEvent) throw new ApiError(422, 'Expected token Transfer event is missing.', undefined, 'TRANSFER_EVENT_MISSING');
     return {
+      chainUid: token.chainUid || this.config.chainUid || null,
       chainId: Number(this.config.chainId), tokenUid: token.tokenUid, organizationUid: token.organizationUid,
       tokenAddress: ethers.getAddress(token.tokenAddress), controllerAddress: null,
       transactionHash: tx.hash.toLowerCase(), type: 'TRANSFER', executionType, initiatedByUserUid: userUid || null,
@@ -468,6 +470,7 @@ class BlockchainTransactionService {
       action === 'INVEST' ? 'PURCHASE' : 'REDEMPTION',
     );
     return {
+      chainUid: token.chainUid || this.config.chainUid || null,
       chainId: Number(this.config.chainId), tokenUid: token.tokenUid, organizationUid: token.organizationUid,
       tokenAddress: ethers.getAddress(token.tokenAddress), controllerAddress: transfer ? null : controllerAddress,
       transactionHash: tx.hash.toLowerCase(), type: action, executionType, initiatedByUserUid: userUid || null,
@@ -512,9 +515,12 @@ class BlockchainTransactionService {
       const transactionTokenAddress = action === 'TRANSFER' ? effectiveTarget : call.tokenAddress;
       const token = tokenUid
         ? await this.repository.findTokenByUid(tokenUid)
-        : await this.repository.findTokenByAddress(transactionTokenAddress);
+        : await this.repository.findTokenByAddress(transactionTokenAddress, this.config.chainId);
       if (!token || !sameAddress(token.tokenAddress, transactionTokenAddress)) {
         throw new ApiError(422, 'Transaction token is not a deployed platform token.', undefined, 'INVALID_TRANSACTION_TOKEN');
+      }
+      if (this.config.chainUid && token.chainUid && token.chainUid !== this.config.chainUid) {
+        throw new ApiError(422, 'Transaction token belongs to a different configured chain.', undefined, 'WRONG_TRANSACTION_CHAIN');
       }
       const expectedControllerAddress = action === 'TRANSFER'
         ? null : this.controllerAddress(token.tokenAgentWalletAddress);
@@ -565,7 +571,8 @@ class BlockchainTransactionService {
       }
       if (Number(receipt.status) !== 1) {
         const failed = {
-          chainId: Number(chainId), tokenUid: token.tokenUid, organizationUid: token.organizationUid,
+          chainUid: token.chainUid || this.config.chainUid, chainId: Number(chainId),
+          tokenUid: token.tokenUid, organizationUid: token.organizationUid,
           tokenAddress: ethers.getAddress(token.tokenAddress), controllerAddress: expectedControllerAddress,
           transactionHash: tx.hash.toLowerCase(), type: action, executionType,
           initiatedByUserUid: actor?.userUid || user?.userUid || null,
@@ -617,7 +624,10 @@ class BlockchainTransactionService {
     if (!row) return row;
     return {
       transactionUid: row.transactionUid || null,
-      chainId: Number(row.chainId), tokenUid: row.tokenUid || null, organizationUid: row.organizationUid || null,
+      chainUid: row.chainUid || null, chainId: Number(row.chainId),
+      chainName: row.chainName || null, networkName: row.networkName || null,
+      explorerUrl: row.explorerUrl || null,
+      tokenUid: row.tokenUid || null, organizationUid: row.organizationUid || null,
       tokenAddress: row.tokenAddress || null, controllerAddress: row.controllerAddress || null,
       transactionHash: row.transactionHash, blockNumber: row.blockNumber == null ? null : Number(row.blockNumber),
       blockHash: row.blockHash || null, transactionIndex: row.transactionIndex ?? null, logIndex: row.logIndex ?? null,
@@ -657,7 +667,7 @@ class BlockchainTransactionService {
   async exportCsv(user, query) {
     if (!['Investor', 'Issuer', 'Super Administrator'].includes(user.roleName)) throw ApiError.forbidden();
     const rows = await this.repository.listForExport(user, query);
-    const columns = ['blockTimestamp', 'type', 'tokenName', 'tokenAmountFormatted', 'tokenSymbol',
+    const columns = ['blockTimestamp', 'chainId', 'chainName', 'type', 'tokenName', 'tokenAmountFormatted', 'tokenSymbol',
       'paymentAmountFormatted', 'paymentTokenSymbol', 'paymentTokenAddress',
       'fromWallet', 'toWallet', 'transactionHash', 'status', 'blockNumber'];
     const csvCell = (value) => {

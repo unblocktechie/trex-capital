@@ -24,6 +24,7 @@ import {
   StatusBadge,
 } from '@/components/token-issuance/IssuancePrimitives';
 import { TokenIcon } from '@/components/common/TokenIcon';
+import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -35,7 +36,7 @@ import { useOrganization } from '@/hooks/useOrganization';
 import { useWalletConnection } from '@/hooks/useWalletConnection';
 import { useTokenDashboardData } from '@/hooks/useTokenDashboardData';
 import { myTokenQueryKey } from '@/hooks/useMyToken';
-import { formatMoney, formatNumber } from '@/utils/tokenIssuance';
+import { formatNumber } from '@/utils/tokenIssuance';
 import { getErrorMessage } from '@/utils/error';
 import { tokenPriceChange, validateCurrentTokenPrice } from '@/utils/tokenPrice';
 import { getDeploymentTransactionHash } from '@/utils/transactionHash';
@@ -54,15 +55,6 @@ import { useTokenIssuanceStore } from '@/store/tokenIssuance.store';
 
 const firstText = (...values) =>
   String(values.find((value) => value !== undefined && value !== null) || '').trim();
-
-const formatPriceInCurrency = (value, currency) => {
-  const normalized = String(value ?? '').trim();
-  const match = normalized.match(/^(\d+)(?:\.(\d+))?$/);
-  if (!match) return value ? formatMoney(value, currency) : '—';
-  const whole = match[1].replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',') || '0';
-  const fraction = (match[2] || '').replace(/0+$/, '');
-  return `${whole}${fraction ? `.${fraction}` : ''} ${currency}`;
-};
 
 const rawAddress = (raw, ...keys) => {
   for (const key of keys) {
@@ -165,7 +157,15 @@ export default function TokenDetailsPage() {
   const token = useTokenDashboardData();
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
-  const wallet = useWalletConnection();
+  const mapped = token.mapped || {};
+  const information = mapped.tokenInformation || {};
+  const identityClaims = mapped.identityClaims || { claimTopics: [], trustedIssuer: {} };
+  const compliance = mapped.compliance || { countries: [] };
+  const agents = mapped.agents || {};
+  const raw = token.token || {};
+  const tokenChainId = Number(raw.chainId || raw.deployment?.chainId || information.chainId || 0) || undefined;
+  const tokenChain = web3Config.getChainById(tokenChainId) || web3Config.requiredChain;
+  const wallet = useWalletConnection(tokenChainId);
   const [priceEditorOpen, setPriceEditorOpen] = useState(false);
   const [newPrice, setNewPrice] = useState('');
   const [priceError, setPriceError] = useState('');
@@ -175,15 +175,8 @@ export default function TokenDetailsPage() {
   const [onchainPaused, setOnchainPaused] = useState(null);
   const [transferStateStatus, setTransferStateStatus] = useState('loading');
   const setDeployment = useTokenIssuanceStore((state) => state.setDeployment);
-  const mapped = token.mapped || {};
-  const information = mapped.tokenInformation || {};
-  const identityClaims = mapped.identityClaims || { claimTopics: [], trustedIssuer: {} };
-  const compliance = mapped.compliance || { countries: [] };
-  const agents = mapped.agents || {};
-  const raw = token.token || {};
   const { paymentTokenAddress, controllerAddress, paymentTokenSymbol } = paymentContextOf(raw, mapped.supplyPricing);
   const paymentSymbol = paymentTokenSymbol || mapped.supplyPricing?.currency || 'payment token';
-  const formatTokenPrice = (value) => formatPriceInCurrency(value, paymentSymbol);
   const tokenName = information.name || firstText(raw.tokenName, raw.name) || 'Security Token';
   const symbol = information.symbol || firstText(raw.tokenSymbol, raw.symbol).toUpperCase() || 'TOKEN';
   const candidateTokenContractAddress = rawAddress(
@@ -207,7 +200,7 @@ export default function TokenDetailsPage() {
 
     let active = true;
     setOnchainPriceStatus('loading');
-    getPlatformTokenPrice({ tokenAddress: candidateTokenContractAddress, paymentTokenAddress, controllerAddress })
+    getPlatformTokenPrice({ tokenAddress: candidateTokenContractAddress, paymentTokenAddress, controllerAddress, chainId: tokenChain.id })
       .then((result) => {
         if (!active) return;
         const price = String(result?.currentTokenPrice || '').trim();
@@ -228,7 +221,7 @@ export default function TokenDetailsPage() {
     return () => {
       active = false;
     };
-  }, [candidateTokenContractAddress, paymentTokenAddress, controllerAddress]);
+  }, [candidateTokenContractAddress, paymentTokenAddress, controllerAddress, tokenChain.id]);
 
   useEffect(() => {
     if (!candidateTokenContractAddress) {
@@ -239,7 +232,7 @@ export default function TokenDetailsPage() {
 
     let active = true;
     setTransferStateStatus('loading');
-    readTrexTokenPaused({ tokenAddress: candidateTokenContractAddress })
+    readTrexTokenPaused({ tokenAddress: candidateTokenContractAddress, chainId: tokenChain.id })
       .then((paused) => {
         if (!active) return;
         setOnchainPaused(paused);
@@ -254,7 +247,7 @@ export default function TokenDetailsPage() {
     return () => {
       active = false;
     };
-  }, [candidateTokenContractAddress, paymentTokenAddress, controllerAddress]);
+  }, [candidateTokenContractAddress, paymentTokenAddress, controllerAddress, tokenChain.id]);
 
   useEffect(() => {
     if (!candidateTokenContractAddress) return undefined;
@@ -269,7 +262,7 @@ export default function TokenDetailsPage() {
           ? updatedToken.token
           : updatedToken;
         queryClient.setQueryData(
-          myTokenQueryKey(token.userKey),
+          myTokenQueryKey(token.userKey, token.selectedChainUid),
           (current) => mergeCurrentPriceIntoToken(current, responseToken, pending.currentTokenPrice),
         );
         clearTokenPriceSyncRecovery(candidateTokenContractAddress);
@@ -282,7 +275,7 @@ export default function TokenDetailsPage() {
     return () => {
       active = false;
     };
-  }, [candidateTokenContractAddress, queryClient, token.userKey]);
+  }, [candidateTokenContractAddress, queryClient, token.selectedChainUid, token.userKey]);
 
   if (token.isLoading) {
     return (
@@ -320,11 +313,11 @@ export default function TokenDetailsPage() {
   }
 
   const network =
-    firstText(raw.network, raw.networkName, information.network) ||
-    web3Config.requiredChain.name;
-  const explorerBase = web3Config.requiredChain.blockExplorers?.default?.url || '';
+    firstText(raw.chainName, raw.network, raw.networkName, information.network) ||
+    tokenChain.name;
+  const explorerBase = tokenChain.blockExplorers?.default?.url || '';
   const ownerAddress = information.treasuryWallet || organization.walletAddress || '';
-  const organizationOnchainId = organization.contractAddress || '';
+  const organizationOnchainId = organization.selectedChainIdentity?.identityAddress || '';
   const tokenContractAddress = candidateTokenContractAddress;
   const identityRegistryAddress = rawAddress(
     raw,
@@ -474,7 +467,7 @@ export default function TokenDetailsPage() {
       });
 
       queryClient.setQueryData(
-        myTokenQueryKey(token.userKey),
+        myTokenQueryKey(token.userKey, token.selectedChainUid),
         (current) => mergeCurrentPriceIntoToken(current, null, confirmedPrice),
       );
 
@@ -484,13 +477,13 @@ export default function TokenDetailsPage() {
           ? updatedToken.token
           : updatedToken;
         queryClient.setQueryData(
-          myTokenQueryKey(token.userKey),
+          myTokenQueryKey(token.userKey, token.selectedChainUid),
           (current) => mergeCurrentPriceIntoToken(current, responseToken, confirmedPrice),
         );
         clearTokenPriceSyncRecovery(tokenContractAddress);
         setPriceEditorOpen(false);
         toast.success('Current price updated', {
-          description: `${tokenName} now uses ${formatTokenPrice(confirmedPrice)} for new purchases and redemptions.`,
+          description: <span>{tokenName} now uses <TokenPriceValue value={confirmedPrice} suffix={` ${paymentSymbol}`} /> for new purchases and redemptions.</span>,
         });
       } catch (syncError) {
         setPriceEditorOpen(false);
@@ -552,9 +545,9 @@ export default function TokenDetailsPage() {
             </div>
             <strong className="token-dashboard-header__price-value">
               <TokenIcon symbol={paymentSymbol} size="xs" />
-              <span>{formatTokenPrice(currentPrice)}</span>
+              <TokenPriceValue value={currentPrice} suffix={` ${paymentSymbol}`} />
             </strong>
-            <span>Used for new purchases. Initial price: {formatTokenPrice(initialPrice)}</span>
+            <span>Used for new purchases. Initial price: <TokenPriceValue value={initialPrice} suffix={` ${paymentSymbol}`} /></span>
             {onchainPriceStatus === 'unset' ? <em className="token-dashboard-header__price-note is-warning">Price activation required before trading</em> : null}
             {onchainPriceStatus === 'unavailable' ? <em className="token-dashboard-header__price-note">Live price check unavailable</em> : null}
           </div>
@@ -849,8 +842,8 @@ export default function TokenDetailsPage() {
           <p>Set the price investors will use for new purchases and redemptions. Your approved organization wallet will ask you to confirm the change. The starting price will not be changed.</p>
         </div>
         <div className="token-price-editor__snapshot" aria-label="Token price comparison">
-          <div><span>Starting price</span><strong>{formatTokenPrice(initialPrice)}</strong><small>Original price</small></div>
-          <div><span>Current investor price</span><strong>{formatTokenPrice(currentPrice)}</strong><small>Price used now</small></div>
+          <div><span>Starting price</span><strong><TokenPriceValue value={initialPrice} suffix={` ${paymentSymbol}`} /></strong><small>Original price</small></div>
+          <div><span>Current investor price</span><strong><TokenPriceValue value={currentPrice} suffix={` ${paymentSymbol}`} /></strong><small>Price used now</small></div>
         </div>
         <Input
           id="new-current-token-price"
@@ -883,7 +876,10 @@ export default function TokenDetailsPage() {
                 ? 'Enter a new price to preview the change'
                 : priceChange.direction === 'unchanged'
                   ? 'No change'
-                  : `${priceChange.direction === 'increase' ? '+' : '−'}${formatTokenPrice(priceChange.amountExact)}`}
+                  : <>
+                    {priceChange.direction === 'increase' ? '+' : '−'}
+                    <TokenPriceValue value={priceChange.amountExact} suffix={` ${paymentSymbol}`} />
+                  </>}
             </strong>
             <small>
               {!priceChange

@@ -6,7 +6,6 @@ import {
   http,
   isAddress,
 } from 'viem';
-import { env } from '@/config/env';
 import { web3Config } from '@/config/web3';
 
 const IDENTITY_REGISTRY_ABI = [
@@ -59,7 +58,7 @@ const publicClientFor = (chainIdValue) => {
       chain.id,
       createPublicClient({
         chain,
-        transport: http(env.web3.rpcUrl),
+        transport: http(web3Config.getChainRecordById(chain.id)?.publicRpcUrl),
       }),
     );
   }

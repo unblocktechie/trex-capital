@@ -15,6 +15,7 @@ import { AuthMiddleware } from '@/middleware/AuthMiddleware';
 import { GuestMiddleware } from '@/middleware/GuestMiddleware';
 import { OrganizationAccessMiddleware } from '@/middleware/OrganizationAccessMiddleware';
 import { RoleMiddleware } from '@/middleware/RoleMiddleware';
+import { SelectedChainBootstrapMiddleware } from '@/middleware/SelectedChainBootstrapMiddleware';
 import { WorkspaceMiddleware } from '@/middleware/WorkspaceMiddleware';
 import { useAuth } from '@/hooks/useAuth';
 import { useInvestorAccessStatus } from '@/hooks/useInvestorAccessStatus';
@@ -26,6 +27,7 @@ const VerifyEmailPage = lazy(() => import('@/pages/auth/VerifyEmailPage'));
 const ForgotPasswordPage = lazy(() => import('@/pages/auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('@/pages/auth/ResetPasswordPage'));
 const DashboardPage = lazy(() => import('@/pages/dashboard/DashboardPage'));
+const ChainAccessPage = lazy(() => import('@/pages/common/ChainAccessPage')); 
 const InvestorsRoutePage = lazy(() => import('@/pages/investors/InvestorsRoutePage'));
 const IssuerInvestorSubscriptionReviewPage = lazy(() => import('@/pages/issuer/IssuerInvestorSubscriptionReviewPage'));
 const IssuerInvestorDirectoryPage = lazy(() => import('@/pages/issuer/IssuerInvestorDirectoryPage'));
@@ -70,6 +72,7 @@ const OrganizationOverviewPage = lazy(() => import('@/pages/organization/Organiz
 const AdminDashboardPage = lazy(() => import('@/pages/admin/AdminDashboardPage'));
 const ReviewQueuePage = lazy(() => import('@/pages/admin/ReviewQueuePage'));
 const AdminOrganizationsPage = lazy(() => import('@/pages/admin/AdminOrganizationsPage'));
+const AdminNetworksPage = lazy(() => import('@/pages/admin/AdminNetworksPage')); 
 const OrganizationReviewPage = lazy(() => import('@/pages/admin/OrganizationReviewPage'));
 const AdminProfilePage = lazy(() => import('@/pages/admin/AdminProfilePage'));
 
@@ -122,6 +125,7 @@ export const router = createBrowserRouter([
               { path: 'dashboard', element: withSuspense(<AdminDashboardPage />) },
               { path: 'reviews', element: withSuspense(<ReviewQueuePage />) },
               { path: 'organizations', element: withSuspense(<AdminOrganizationsPage />) },
+              { path: 'networks', element: withSuspense(<AdminNetworksPage />) },
               { path: 'organizations/:organizationId', element: withSuspense(<OrganizationReviewPage />) },
               { path: 'profile', element: withSuspense(<AdminProfilePage />) },
               { path: 'users', element: <Navigate to={ROUTES.adminReviewQueue} replace /> },
@@ -138,13 +142,18 @@ export const router = createBrowserRouter([
         children: [
           {
             path: '/app',
-            element: <MainLayout />,
+            element: (
+              <SelectedChainBootstrapMiddleware>
+                <MainLayout />
+              </SelectedChainBootstrapMiddleware>
+            ),
             children: [
           {
             element: <OrganizationAccessMiddleware />,
             children: [
               { index: true, element: <Navigate to={ROUTES.dashboard} replace /> },
               { path: 'dashboard', element: withSuspense(<DashboardPage />) },
+              { path: 'networks', element: withSuspense(<ChainAccessPage />) },
               { path: 'investors', element: withSuspense(<InvestorsRoutePage />) },
               {
                 element: <RoleMiddleware roles={[ROLES.issuer]} />,

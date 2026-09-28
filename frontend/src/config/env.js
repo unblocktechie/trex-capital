@@ -1,34 +1,17 @@
 import { z } from 'zod';
 
-// Default Platform Controller that must be registered as a Token Agent on every
-// newly created T-REX token. It remains environment-overridable for controlled
-// network migrations, while this address is the default for the current platform.
-export const DEFAULT_TREX_PLATFORM_CONTROLLER_ADDRESS =
-  '0x4052D80c222111234b89AFDfff597B5De8DA50cd';
-
-// Keep API requests patient enough for backend workflows that can include
-// database updates and downstream/on-chain verification. Individual APIs may
-// still opt into a longer timeout when required.
 export const DEFAULT_REQUEST_TIMEOUT_MS = 500_000;
-
-const defaultPlatformControllerAddress = z.preprocess(
-  (value) =>
-    typeof value === 'string' && value.trim() === '' ? undefined : value,
-  z
-    .string()
-    .trim()
-    .regex(/^0x[a-fA-F0-9]{40}$/, 'Platform Controller must be a valid EVM address.')
-    .refine(
-      (value) => value.toLowerCase() !== '0x0000000000000000000000000000000000000000',
-      'Platform Controller cannot be the zero address.',
-    )
-    .default(DEFAULT_TREX_PLATFORM_CONTROLLER_ADDRESS),
-);
 
 const envSchema = z.object({
   VITE_APP_NAME: z.string().default('T-REX Capital Market'),
   VITE_APP_VERSION: z.string().default('1.0.0'),
-  // VITE_API_BASE_URL: z.string().url().default('https://trex-api.farmlink.site/api'),
+  VITE_DEPLOYMENT_ENVIRONMENT: z.enum(['testnet', 'mainnet']).default('testnet'),
+  VITE_COMPANY_NAME: z.string().default('T-REX Capital Market'),
+  VITE_COMPANY_WEBSITE_URL: z.string().url().default('https://unblocktechnolabs.com/'),
+  VITE_COMPANY_WEBSITE_LABEL: z.string().default('UNBLOCK TECHNOLABS'),
+  VITE_CONTACT_US_URL: z.string().url().default('https://unblocktechnolabs.com/contactUs'),
+  VITE_DOCUMENTS_URL: z.string().url().default('https://t-rex-capital.gitbook.io/docs/'),
+  VITE_SUPPORT_EMAIL: z.string().email().default('support@trexcapitalmarket.dev'),
   VITE_API_BASE_URL: z.string().url().default('http://192.168.29.90:3000/api'),
   VITE_API_VERSION: z.string().default('v1'),
   VITE_SOCKET_URL: z.string().default('ws://192.168.29.90:3000/ws'),
@@ -39,31 +22,25 @@ const envSchema = z.object({
   VITE_FIREBASE_API_KEY: z.string().default(''),
   VITE_SENTRY_DSN: z.string().default(''),
   VITE_WALLETCONNECT_PROJECT_ID: z.string().default(''),
-  VITE_WEB3_DEFAULT_CHAIN: z.literal('sepolia').default('sepolia'),
-  VITE_WEB3_ENABLED_CHAINS: z.literal('sepolia').default('sepolia'),
-  VITE_SEPOLIA_RPC_URL: z.string().url().default('https://ethereum-sepolia-rpc.publicnode.com'),
-  VITE_TREX_GATEWAY_ADDRESS: z.string().default('0x32c06Dcd426ee86c4FDD2514c58785ff7A5DDAc0'),
-  VITE_TREX_PLATFORM_WALLET_ADDRESS: z.string().default('0xDbBdcA99d568B54feaAb6c6D34e8f0093c509859'),
-  VITE_TREX_PLATFORM_CONTROLLER_ADDRESS: defaultPlatformControllerAddress,
-  VITE_TREX_PAYMENT_TOKEN_ADDRESS: z.string().default('0x86B14D29A59b745bF08c42661322d13142d5eb49'),
-  VITE_ONCHAIN_ID_FACTORY_ADDRESS: z.string().default('0xe1da45b88C9d3f4347A6E1C6e8ee63e360068a15'),
-  VITE_COUNTRY_RESTRICT_MODULE_ADDRESS: z.string().default('0xF5D3F29B57f2fd33aDbF5d6A5F5C774C07D18fDf'),
-  VITE_MAX_BALANCE_MODULE_ADDRESS: z.string().default('0x45747f7068CE9C743b82ec3E8E92627b495860A6'),
-  VITE_MAX_INVESTORS_MODULE_ADDRESS: z.string().default('0xa729d37329Bc0F513d5E50d200ec9cf06a80064F'),
 });
 
 const result = envSchema.safeParse(import.meta.env);
-
 if (!result.success) {
   console.error('Invalid environment configuration', result.error.flatten().fieldErrors);
   throw new Error('Application environment is invalid. Check your .env file.');
 }
-
 const parsed = result.data;
 
 export const env = Object.freeze({
   appName: parsed.VITE_APP_NAME,
   appVersion: parsed.VITE_APP_VERSION,
+  deploymentEnvironment: parsed.VITE_DEPLOYMENT_ENVIRONMENT,
+  companyName: parsed.VITE_COMPANY_NAME,
+  companyWebsiteUrl: parsed.VITE_COMPANY_WEBSITE_URL,
+  companyWebsiteLabel: parsed.VITE_COMPANY_WEBSITE_LABEL,
+  contactUsUrl: parsed.VITE_CONTACT_US_URL,
+  documentsUrl: parsed.VITE_DOCUMENTS_URL,
+  supportEmail: parsed.VITE_SUPPORT_EMAIL,
   apiBaseUrl: parsed.VITE_API_BASE_URL.replace(/\/$/, ''),
   apiVersion: parsed.VITE_API_VERSION.replace(/^\/+|\/+$/g, ''),
   socketUrl: parsed.VITE_SOCKET_URL,
@@ -71,23 +48,6 @@ export const env = Object.freeze({
   firebaseApiKey: parsed.VITE_FIREBASE_API_KEY,
   sentryDsn: parsed.VITE_SENTRY_DSN,
   walletConnectProjectId: parsed.VITE_WALLETCONNECT_PROJECT_ID.trim(),
-  web3: {
-    defaultChain: parsed.VITE_WEB3_DEFAULT_CHAIN,
-    enabledChains: [parsed.VITE_WEB3_ENABLED_CHAINS],
-    rpcUrl: parsed.VITE_SEPOLIA_RPC_URL,
-  },
-  trex: {
-    gateway: parsed.VITE_TREX_GATEWAY_ADDRESS,
-    platformWallet: parsed.VITE_TREX_PLATFORM_WALLET_ADDRESS,
-    platformController: parsed.VITE_TREX_PLATFORM_CONTROLLER_ADDRESS,
-    paymentToken: parsed.VITE_TREX_PAYMENT_TOKEN_ADDRESS,
-    identityFactory: parsed.VITE_ONCHAIN_ID_FACTORY_ADDRESS,
-    complianceModules: {
-      countryRestrict: parsed.VITE_COUNTRY_RESTRICT_MODULE_ADDRESS,
-      maxBalance: parsed.VITE_MAX_BALANCE_MODULE_ADDRESS,
-      maxInvestors: parsed.VITE_MAX_INVESTORS_MODULE_ADDRESS,
-    },
-  },
   features: {
     mockApi: parsed.VITE_USE_MOCK_API === 'true',
     darkMode: parsed.VITE_ENABLE_DARK_MODE === 'true',

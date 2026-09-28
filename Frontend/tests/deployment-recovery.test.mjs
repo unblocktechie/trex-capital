@@ -25,7 +25,7 @@ function setupDeployment({ price = 0n, metadata = {} } = {}) {
     tokenRecord: { token: { tokenUid: 'token-1', controllerAddress: controller, paymentTokenAddress: pay }, tokenUid: 'token-1', userKey: 'issuer-1' },
     buttons: [], navigations: [], submissions: [], pathname: '/app/tokens/new/deploying',
     store: {
-      tokenInformation: { treasuryWallet: issuer }, supplyPricing: { initialPrice: '1.5', paymentTokenAddress: pay },
+      tokenInformation: { treasuryWallet: issuer, chainUid: 'sepolia', chainId: 11155111, network: 'Sepolia' }, supplyPricing: { initialPrice: '1.5', paymentTokenAddress: pay },
       backend: { tokenUid: 'token-1', hydrated: true },
       deployment: { status: 'error', retryMode: 'price-confirmation', canRetry: true, transactionHash: hash },
       setDeployment: values => Object.assign(state.store.deployment, values),
@@ -64,7 +64,7 @@ test('retry skips a price already confirmed on-chain', async () => {
   assert.equal(state.store.deployment.status, 'success');
 });
 
-test('third transaction hash is durable before receipt polling starts', async () => {
+test('receipt RPC failure after the third transaction is reconciled automatically from live state', async () => {
   const { state, chain } = setupDeployment();
   let recordedHash;
   chain.publicClient.waitForTransactionReceipt = async () => {
@@ -73,8 +73,9 @@ test('third transaction hash is durable before receipt polling starts', async ()
   };
   await retryPrice(state);
   assert.equal(recordedHash, hash);
-  assert.equal(state.store.deployment.status, 'error');
-  assert.equal(state.submissions.length, 0);
+  assert.equal(chain.writes.length, 1);
+  assert.equal(state.store.deployment.status, 'success');
+  assert.equal(state.submissions.length, 1);
 });
 
 test('retry with a pending price hash never resubmits or finalizes', async () => {

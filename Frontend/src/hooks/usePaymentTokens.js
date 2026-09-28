@@ -1,6 +1,21 @@
-import { useQuery } from '@tanstack/react-query';
-import { getPaymentTokens } from '@/api/tokens/paymentTokens.api';
+import { useMemo } from 'react';
+import { supportsPaymentAction } from '@/config/payment-tokens';
+import { web3Config } from '@/config/web3';
+import { useChainConfig } from '@/hooks/useChains';
 
-export function usePaymentTokens() {
-  return useQuery({ queryKey: ['payment-tokens'], queryFn: ({ signal }) => getPaymentTokens({ signal }), staleTime: 30_000 });
+export function usePaymentTokens({ chainUid, chainId, action = 'purchase', enabled = true } = {}) {
+  const resolvedChainUid = String(
+    chainUid || web3Config.getChainRecordById(chainId)?.chainUid || '',
+  ).trim();
+  const query = useChainConfig(resolvedChainUid, {
+    enabled: Boolean(enabled && resolvedChainUid),
+  });
+
+  const data = useMemo(
+    () => (query.data?.paymentTokens || []).filter((item) =>
+      !action || action === 'price' || supportsPaymentAction(item, action)),
+    [action, query.data?.paymentTokens],
+  );
+
+  return { ...query, data };
 }

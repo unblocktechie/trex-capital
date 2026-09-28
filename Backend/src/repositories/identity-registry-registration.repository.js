@@ -7,13 +7,14 @@ class IdentityRegistryRegistrationRepository {
     const rows = await execute(
       `SELECT ii.\`interestUid\`, ii.\`status\` AS \`interestStatus\`, ii.\`tokenUid\`,
               ii.\`organizationUid\`, ii.\`investorUid\`, ii.\`investorUserUid\`,
+              t.\`chainUid\`, chainConfig.\`chainId\`,
               t.\`status\` AS \`tokenStatus\`, t.\`identityRegistryAddress\`, t.\`tokenAgentWalletAddress\`,
               t.\`identityManagerWalletAddress\`,
               t.\`countryRestrictionMode\`, t.\`deployedAtBlock\`,
               o.\`userUid\` AS \`issuerUserUid\`, o.\`walletAddress\` AS \`issuerWalletAddress\`,
               o.\`status\` AS \`organizationStatus\`, o.\`isActive\` AS \`organizationActive\`,
               i.\`walletAddress\` AS \`investorWalletAddress\`,
-              i.\`contractAddress\` AS \`investorIdentityAddress\`,
+              investorChainIdentity.\`identityAddress\` AS \`investorIdentityAddress\`,
               i.\`countryUid\`, i.\`status\` AS \`investorStatus\`, i.\`isActive\` AS \`investorActive\`,
               c.\`numericCode\` AS \`countryNumericCode\`, c.\`isActive\` AS \`countryActive\`,
               c.\`isDeleted\` AS \`countryDeleted\`,
@@ -30,6 +31,13 @@ class IdentityRegistryRegistrationRepository {
        INNER JOIN \`tokenMaster\` t ON t.\`tokenUid\` = ii.\`tokenUid\` AND t.\`isDeleted\` = 0
        INNER JOIN \`organizationMaster\` o ON o.\`organizationUid\` = ii.\`organizationUid\` AND o.\`isDeleted\` = 0
        INNER JOIN \`investorMaster\` i ON i.\`investorUid\` = ii.\`investorUid\` AND i.\`isDeleted\` = 0
+       INNER JOIN \`chainMaster\` chainConfig ON chainConfig.\`chainUid\` = t.\`chainUid\`
+         AND chainConfig.\`isActive\` = 1 AND chainConfig.\`isDeleted\` = 0
+       LEFT JOIN \`userChainIdentity\` investorChainIdentity
+         ON investorChainIdentity.\`userUid\` = i.\`userUid\`
+        AND investorChainIdentity.\`chainUid\` = t.\`chainUid\`
+        AND investorChainIdentity.\`status\` = 'CREATED' AND investorChainIdentity.\`isUnlocked\` = 1
+        AND investorChainIdentity.\`isDeleted\` = 0
        LEFT JOIN \`countryMaster\` c ON c.\`countryUid\` = i.\`countryUid\`
        WHERE ii.\`interestUid\` = ? AND ii.\`isDeleted\` = 0 LIMIT 1`,
       [interestUid], executor,
@@ -85,10 +93,11 @@ class IdentityRegistryRegistrationRepository {
     return rows[0] || null;
   }
 
-  async findByTxHash(txHash, executor) {
+  async findByTxHash(txHash, executor, chainId = null) {
     const rows = await execute(
-      'SELECT * FROM `identityRegistryRegistration` WHERE LOWER(`txHash`) = LOWER(?) AND `isDeleted` = 0 LIMIT 1',
-      [txHash], executor,
+      `SELECT * FROM \`identityRegistryRegistration\` WHERE LOWER(\`txHash\`) = LOWER(?) AND \`isDeleted\` = 0
+       ${chainId === null || chainId === undefined ? '' : 'AND `chainId` = ?'} LIMIT 1`,
+      chainId === null || chainId === undefined ? [txHash] : [txHash, Number(chainId)], executor,
     );
     return rows[0] || null;
   }
@@ -112,11 +121,11 @@ class IdentityRegistryRegistrationRepository {
     await execute(
       `INSERT INTO \`identityRegistryRegistration\`
         (\`registryRegistrationUid\`, \`interestUid\`, \`tokenUid\`, \`organizationUid\`, \`investorUid\`,
-         \`issuerUserUid\`, \`chainId\`, \`identityRegistryAddress\`, \`issuerWalletAddress\`,
+         \`issuerUserUid\`, \`chainUid\`, \`chainId\`, \`identityRegistryAddress\`, \`issuerWalletAddress\`,
          \`investorWalletAddress\`, \`investorIdentityAddress\`, \`countryCode\`, \`preparedAtBlock\`)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [registryRegistrationUid, data.interestUid, data.tokenUid, data.organizationUid, data.investorUid,
-        data.issuerUserUid, data.chainId, data.identityRegistryAddress, data.issuerWalletAddress,
+        data.issuerUserUid, data.chainUid, data.chainId, data.identityRegistryAddress, data.issuerWalletAddress,
         data.investorWalletAddress, data.investorIdentityAddress, data.countryCode, data.preparedAtBlock ?? null],
       executor,
     );
@@ -128,14 +137,14 @@ class IdentityRegistryRegistrationRepository {
     await execute(
       `INSERT INTO \`identityRegistryRegistration\`
         (\`registryRegistrationUid\`, \`interestUid\`, \`tokenUid\`, \`organizationUid\`, \`investorUid\`,
-         \`issuerUserUid\`, \`chainId\`, \`identityRegistryAddress\`, \`issuerWalletAddress\`,
+         \`issuerUserUid\`, \`chainUid\`, \`chainId\`, \`identityRegistryAddress\`, \`issuerWalletAddress\`,
          \`investorWalletAddress\`, \`investorIdentityAddress\`, \`countryCode\`, \`status\`, \`txHash\`,
          \`preparedAtBlock\`, \`lastScannedBlock\`, \`blockNumber\`, \`blockHash\`, \`transactionIndex\`,
          \`logIndex\`, \`verifiedAt\`, \`syncStatus\`, \`syncCompletedAt\`)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', ?, ?, ?, ?, ?, ?, ?,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', ?, ?, ?, ?, ?, ?, ?,
          UTC_TIMESTAMP(3), 'IDLE', UTC_TIMESTAMP(3))`,
       [registryRegistrationUid, data.interestUid, data.tokenUid, data.organizationUid, data.investorUid,
-        data.issuerUserUid, data.chainId, data.identityRegistryAddress, data.issuerWalletAddress,
+        data.issuerUserUid, data.chainUid, data.chainId, data.identityRegistryAddress, data.issuerWalletAddress,
         data.investorWalletAddress, data.investorIdentityAddress, data.countryCode,
         verified.txHash.toLowerCase(), data.preparedAtBlock ?? verified.blockNumber,
         verified.blockNumber, verified.blockNumber, verified.blockHash || null,
@@ -187,7 +196,7 @@ class IdentityRegistryRegistrationRepository {
     return result.affectedRows > 0;
   }
 
-  async findRecoveryCandidates(limit = 100, executor) {
+  async findRecoveryCandidates(limit = 100, executor, chainId = null) {
     const limitSql = sqlInteger(Math.max(1, Math.trunc(limit)), { min: 1, name: 'limit' });
     return execute(
       `SELECT * FROM \`identityRegistryRegistration\`
@@ -196,8 +205,9 @@ class IdentityRegistryRegistrationRepository {
            ('TRANSACTION_NOT_FOUND', 'INSUFFICIENT_CONFIRMATIONS', 'RPC_UNAVAILABLE', 'REGISTRY_STATE_UNAVAILABLE', 'CHAIN_REORGANIZATION'))
          AND \`syncStatus\` IN ('IDLE', 'QUEUED', 'FAILED')
          AND (\`nextSyncAt\` IS NULL OR \`nextSyncAt\` <= UTC_TIMESTAMP(3))
+         ${chainId === null ? '' : 'AND `chainId` = ?'}
        ORDER BY (\`syncStatus\` = 'QUEUED') DESC, COALESCE(\`syncRequestedAt\`, \`createdAt\`) ASC LIMIT ${limitSql}`,
-      [], executor,
+      chainId === null ? [] : [Number(chainId)], executor,
     );
   }
 
@@ -228,21 +238,26 @@ class IdentityRegistryRegistrationRepository {
     );
   }
 
-  async listRegistryAddresses(executor) {
+  async listRegistryAddresses(chainId = null, executor) {
     const rows = await execute(
       `SELECT DISTINCT LOWER(\`identityRegistryAddress\`) AS \`identityRegistryAddress\`
-       FROM \`tokenMaster\` WHERE \`status\` = 'deployed' AND \`identityRegistryAddress\` IS NOT NULL
-         AND \`identityRegistryAddress\` <> '' AND \`isActive\` = 1 AND \`isDeleted\` = 0`,
-      [], executor,
+       FROM \`tokenMaster\` t
+       INNER JOIN \`chainMaster\` c ON c.\`chainUid\` = t.\`chainUid\`
+       WHERE t.\`status\` = 'deployed' AND t.\`identityRegistryAddress\` IS NOT NULL
+         AND t.\`identityRegistryAddress\` <> '' AND t.\`isActive\` = 1 AND t.\`isDeleted\` = 0
+         ${chainId === null ? '' : 'AND c.`chainId` = ?'}`,
+      chainId === null ? [] : [Number(chainId)], executor,
     );
     return rows.map((row) => row.identityRegistryAddress);
   }
 
-  async findIndexerStartBlock(executor) {
+  async findIndexerStartBlock(chainId = null, executor) {
     const rows = await execute(
-      `SELECT MIN(COALESCE(\`deployedAtBlock\`, 0)) AS \`startBlock\` FROM \`tokenMaster\`
-       WHERE \`status\` = 'deployed' AND \`identityRegistryAddress\` IS NOT NULL AND \`isDeleted\` = 0`,
-      [], executor,
+      `SELECT MIN(COALESCE(t.\`deployedAtBlock\`, 0)) AS \`startBlock\` FROM \`tokenMaster\` t
+       INNER JOIN \`chainMaster\` c ON c.\`chainUid\` = t.\`chainUid\`
+       WHERE t.\`status\` = 'deployed' AND t.\`identityRegistryAddress\` IS NOT NULL AND t.\`isDeleted\` = 0
+         ${chainId === null ? '' : 'AND c.`chainId` = ?'}`,
+      chainId === null ? [] : [Number(chainId)], executor,
     );
     return Number(rows[0]?.startBlock || 0);
   }

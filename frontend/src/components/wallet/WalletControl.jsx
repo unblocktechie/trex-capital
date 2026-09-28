@@ -71,9 +71,10 @@ export function WalletControl({
   expanded = false,
   context = 'organization',
   purpose = '',
+  requiredChainId,
 }) {
   const [open, setOpen] = useState(false);
-  const wallet = useWalletConnection();
+  const wallet = useWalletConnection(requiredChainId);
   const isInvestorContext = context === 'investor';
   const isRegisteredAction = isInvestorContext && purpose === 'registered-action';
 
@@ -424,7 +425,7 @@ export function WalletControl({
                     : 'This wallet becomes the primary organization wallet and will be used for token creation and future issuer actions.'}
               </p>
               <span className="mt-3 inline-flex rounded-full bg-white px-3 py-1 text-xs font-bold text-[var(--primary-700)] shadow-sm">
-                Sepolia testnet only
+                {wallet.supportedChains.length > 1 ? `${wallet.supportedChains.length} supported networks` : wallet.requiredChain.name}
               </span>
             </div>
 

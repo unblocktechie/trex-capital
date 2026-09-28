@@ -1,27 +1,22 @@
 # Multi-payment frontend integration
 
-This update targets the existing Sepolia frontend without Privy or Arc. The supplied Solidity contract is unchanged. The frontend ABI is extracted from the supplied TREXPlatformController JSON artifact.
+This integration supports the active networks returned by the backend. The supplied Solidity contract is unchanged. The frontend ABI is extracted from the supplied TREXPlatformController JSON artifact.
 
 ## Catalogue and asset identity
 
-The frontend fetches `GET /api/v1/payment-tokens`. Its `src/config/payment-tokens.js` normalizes the response; it does not duplicate the backend's authoritative currency catalogue. The API may return an array or `{ data: [...] }`, with `paymentTokens`/`items` collection wrappers also accepted.
+For the selected network, the frontend fetches `GET /api/v1/chains/{chainUid}/config` and uses only `data.paymentTokens`. `src/config/payment-tokens.js` normalizes those rows; it does not duplicate or merge a local currency catalogue.
 
 Each row must provide `contractAddress`, `symbol`, `decimals`, `chainId` (or `chain.id`/`chain.chainId`), `active` (or `isActive`), and `supportedActions`. Optional `name`/`displayName` and `explorerUrl` are preserved. Supported action aliases include PURCHASE/BUY/INVEST and REDEMPTION/REDEEM. Inactive or unsupported entries cannot be used for transactions.
 
-The backend catalogue should currently contain:
-
-| Symbol | Sepolia address | Decimals |
-| --- | --- | --- |
-| USDT | `0x86B14D29A59b745bF08c42661322d13142d5eb49` | 6 |
-| USDC | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` | 6 |
+The frontend does not hardcode token addresses or assume a fixed token set for any network.
 
 The issuer selects one catalogue entry beside the starting price. `PUT /api/v1/tokens/me/information` includes its address as `paymentTokenAddress`, together with the existing multipart information/image fields. The response must echo the stored address. Saved drafts remain editable, including after backend hydration. The selection locks at the existing creation/recovery boundary (when creation starts or a deployed asset is returned), matching the setup lifecycle. Numeric price changes after creation retain the currency.
 
-Asset, application, portfolio, and issuer-redemption detail responses should expose the saved `paymentTokenAddress` and `platformControllerAddress`, preferably with `paymentTokenSymbol`. The mapper accepts nested `token`, `tokenMaster`, `raw`, `interest.raw`, `tokenInformation`, `supplyPricing`, pricing, or deployment records; controller aliases are `controllerAddress`, `platformController`, and `controller.contractAddress`. The payment-token address remains asset-authoritative and is never inferred from a symbol or legacy USDT alias. For older records that are missing only the controller, transaction services recover it from the matching authoritative `/payment-tokens` catalogue row, and only then from the configured current platform controller. This keeps refresh/recovery flows usable without changing the asset's selected payment token. Legacy `usdt*` history fields are display compatibility aliases only.
+Asset, application, portfolio, and issuer-redemption detail responses should expose the saved `paymentTokenAddress` and `platformControllerAddress`, preferably with `paymentTokenSymbol`. The mapper accepts nested `token`, `tokenMaster`, `raw`, `interest.raw`, `tokenInformation`, `supplyPricing`, pricing, or deployment records; controller aliases are `controllerAddress`, `platformController`, and `controller.contractAddress`. The payment-token address remains asset-authoritative and is never inferred from a symbol or legacy USDT alias. For older records that are missing only the controller, transaction services recover it from the matching authoritative selected-chain payment-token row, and only then from the selected chain configuration's current Platform Controller. This keeps refresh/recovery flows usable without changing the asset's selected payment token. Legacy `usdt*` history fields are display compatibility aliases only.
 
 ## Transactions
 
-For an existing asset, use its stored controller. The configured default controller for new deployments is `0x4052D80c222111234b89AFDfff597B5De8DA50cd`. No separate purchase/redemption payment-address environment variables were added.
+For an existing asset, use its stored controller. New deployments use the Platform Controller returned by the selected-chain configuration. No purchase/redemption payment or controller address is sourced from frontend environment variables.
 
 Investment: select asset → enter asset quantity → load its fixed currency → validate catalogue, chain, controller, asset configuration, on-chain currency metadata and whitelist → obtain `quoteBuy(asset, paymentToken, assetAmountRaw)` → check investor payment balance, allowance, and native fee balance → approve that ERC-20 for the saved controller if necessary → simulate and broadcast `buy(asset, paymentToken, assetAmountRaw)` from the investor wallet.
 
@@ -52,7 +47,7 @@ After broadcast, the existing recovery/confirmation flow submits only `chainId`,
 
 Backend source and database access were not supplied, so this frontend delivery does not implement or apply the backend migration, verifier, or checkpointed indexer. Before deployment, the backend must:
 
-1. Expose the catalogue, validate creation addresses, persist the chosen payment token, allow changing it while the asset is a draft, and reject currency changes once creation starts.
+1. Expose selected-chain `paymentTokens`, validate creation addresses, persist the chosen payment token, allow changing it while the asset is a draft, and reject currency changes once creation starts.
 2. Return each asset's stored controller and currency in all transaction-facing responses.
 3. Verify calldata, stored currency, active catalogue, receipt-block whitelist, payment Transfer, Controller purchase/redemption event, and matching multi-payment quote.
 4. Persist generic paymentToken*/paymentAmount* canonical history fields and compatibility aliases; index all configured currencies and deployed asset transfers using the same idempotent verifier.

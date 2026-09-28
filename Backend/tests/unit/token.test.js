@@ -19,7 +19,7 @@ const organization = {
   walletAddress: '0x1111111111111111111111111111111111111111',
 };
 const issuer = { userUid: 'user-1', roleName: 'Issuer' };
-const PLATFORM_CONTROLLER = '0x4052D80c222111234b89AFDfff597B5De8DA50cd';
+const PLATFORM_CONTROLLER = '0xdf290bA0D8E84632A85FAc0CAE7bEa1Cf9c50556';
 const LEGACY_PLATFORM_CONTROLLER = '0x40e81FAA4e6D54ae0632DF146939bB5858359271';
 const DEFAULT_PAYMENT_TOKEN = '0x86B14D29A59b745bF08c42661322d13142d5eb49';
 const paymentTokenRepository = {
@@ -231,6 +231,118 @@ test('editing an existing token preserves the Platform Controller assigned at cr
   const result = await service.saveInformation(issuer, { tokenName: 'Legacy Token', isDraft: true });
   assert.equal(savedFields.tokenAgentWalletAddress, LEGACY_PLATFORM_CONTROLLER);
   assert.equal(result.tokenAgentWalletAddress, LEGACY_PLATFORM_CONTROLLER);
+});
+
+test('a draft token can move to another unlocked chain and receives chain-specific defaults', async () => {
+  const oldChainUid = '60000000-0000-4000-8000-000000000001';
+  const newChainUid = '60000000-0000-4000-8000-000000000002';
+  const newController = '0x2222222222222222222222222222222222222222';
+  const newPaymentToken = '0x3333333333333333333333333333333333333333';
+  const existing = {
+    tokenUid: 'draft-token', chainUid: oldChainUid, status: 'draft', currentStep: 'tokenInformation',
+    tokenAgentWalletAddress: LEGACY_PLATFORM_CONTROLLER, paymentTokenAddress: DEFAULT_PAYMENT_TOKEN,
+  };
+  let savedFields;
+  let unlockedChainUid;
+  const service = new TokenService({
+    repository: {
+      findByUserUid: async () => existing,
+      updateByUserUid: async (_userUid, fields) => {
+        savedFields = fields;
+        return { ...existing, ...fields };
+      },
+    },
+    organizationRepository: { findByUserUid: async () => organization },
+    chainRuntimeService: {
+      byUid: async (chainUid) => ({
+        chainUid, chainId: 84532, platformControllerAddress: newController,
+      }),
+    },
+    userChainIdentityRepository: {
+      find: async (_userUid, chainUid) => {
+        unlockedChainUid = chainUid;
+        return { status: 'CREATED', isUnlocked: true };
+      },
+    },
+    paymentTokenRepository: {
+      findDefault: async (chainId) => {
+        assert.equal(chainId, 84532);
+        return { contractAddress: newPaymentToken };
+      },
+      findActiveByAddress: async () => null,
+    },
+  });
+
+  const result = await service.saveInformation(issuer, { chainUid: newChainUid, isDraft: true });
+
+  assert.equal(unlockedChainUid, newChainUid);
+  assert.equal(savedFields.chainUid, newChainUid);
+  assert.equal(savedFields.paymentTokenAddress, newPaymentToken);
+  assert.equal(savedFields.tokenAgentWalletAddress, ethers.getAddress(newController));
+  assert.equal(result.status, 'draft');
+});
+
+test('a token chain cannot change after the token leaves draft status', async () => {
+  const service = new TokenService({
+    repository: {
+      findByUserUid: async () => ({
+        tokenUid: 'failed-token', chainUid: '60000000-0000-4000-8000-000000000001',
+        status: 'deploymentFailed', tokenAgentWalletAddress: PLATFORM_CONTROLLER,
+      }),
+    },
+    organizationRepository: { findByUserUid: async () => organization },
+    chainRuntimeService: {
+      byUid: async (chainUid) => ({ chainUid, chainId: 84532, platformControllerAddress: PLATFORM_CONTROLLER }),
+    },
+    userChainIdentityRepository: {
+      find: async () => ({ status: 'CREATED', isUnlocked: true }),
+    },
+  });
+
+  await assert.rejects(
+    service.saveInformation(issuer, {
+      chainUid: '60000000-0000-4000-8000-000000000002', isDraft: true,
+    }),
+    (error) => error.statusCode === 409 && /leaves draft status/i.test(error.message),
+  );
+});
+
+test('a later draft save without chainUid retains the token selected chain', async () => {
+  const selectedChainUid = '60000000-0000-4000-8000-000000000002';
+  let loadedChainUid;
+  let savedFields;
+  const service = new TokenService({
+    repository: {
+      findByUserUid: async () => ({
+        tokenUid: 'draft-token', chainUid: selectedChainUid, status: 'draft',
+        tokenAgentWalletAddress: PLATFORM_CONTROLLER, paymentTokenAddress: DEFAULT_PAYMENT_TOKEN,
+      }),
+      updateByUserUid: async (_userUid, fields) => {
+        savedFields = fields;
+        return fields;
+      },
+    },
+    organizationRepository: {
+      findByUserUid: async () => ({
+        ...organization, onboardingChainUid: '60000000-0000-4000-8000-000000000001',
+      }),
+    },
+    chainRuntimeService: {
+      byUid: async (chainUid) => {
+        loadedChainUid = chainUid;
+        return { chainUid, chainId: 11155111, platformControllerAddress: PLATFORM_CONTROLLER };
+      },
+    },
+    userChainIdentityRepository: {
+      find: async () => ({ status: 'CREATED', isUnlocked: true }),
+    },
+  });
+
+  await service.saveInformation(issuer, { tokenName: 'Updated Draft', isDraft: true });
+
+  assert.equal(loadedChainUid, selectedChainUid);
+  assert.equal(savedFields.chainUid, selectedChainUid);
+  assert.equal(savedFields.paymentTokenAddress, undefined);
 });
 
 test('deployed or ready-to-deploy token cannot be edited into another token', () => {

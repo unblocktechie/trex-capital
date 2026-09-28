@@ -36,6 +36,7 @@ import { ApproveOrganizationModal, RejectOrganizationModal } from '@/components/
 import { DetailPageSkeleton } from '@/components/admin/AdminSkeletons';
 import { Modal } from '@/components/ui/Modal';
 import { ROUTES } from '@/config/routes';
+import { web3Config } from '@/config/web3';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { formatAdminDate, formatAdminDateTime, formatFileSize } from '@/utils/adminFormat';
 import { getErrorMessage, sanitizeUserFacingMessage } from '@/utils/error';
@@ -54,6 +55,10 @@ export default function OrganizationReviewPage() {
     queryFn: () => adminApi.getOrganization(organizationId),
   });
   const organization = organizationQuery.data;
+  const organizationWalletChain = organization?.wallet?.chainId
+    ? web3Config.getChainById(organization.wallet.chainId)
+    : null;
+  const organizationExplorerBase = organizationWalletChain?.blockExplorers?.default?.url || '';
   useDocumentTitle(organization ? `${organization.name} Review` : 'Organization Review');
 
   const refresh = async () => {
@@ -189,12 +194,12 @@ export default function OrganizationReviewPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={copyWallet} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700"><Copy className="size-4" />Copy</button>
-                    <a href={`https://sepolia.etherscan.io/address/${organization.wallet.address}`} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-700 px-3 text-xs font-semibold text-white"><ExternalLink className="size-4" />Explorer</a>
+                    {organizationExplorerBase ? <a href={`${organizationExplorerBase}/address/${organization.wallet.address}`} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-700 px-3 text-xs font-semibold text-white"><ExternalLink className="size-4" />Explorer</a> : null}
                   </div>
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <WalletDetail label="Network" value={organization.wallet.network || 'Sepolia'} />
-                  <WalletDetail label="Chain ID" value={organization.wallet.chainId || '11155111'} />
+                  <WalletDetail label="Network" value={organization.wallet.network || 'Configured network'} />
+                  <WalletDetail label="Chain ID" value={organization.wallet.chainId || 'Not provided'} />
                   <WalletDetail label="Status" value="Connected" />
                 </div>
                 {organization.wallet.contractAddress ? (
@@ -216,14 +221,16 @@ export default function OrganizationReviewPage() {
                         >
                           <Copy className="size-4" />Copy
                         </button>
-                        <a
-                          href={`https://sepolia.etherscan.io/address/${organization.wallet.contractAddress}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-slate-950 px-3 text-xs font-semibold text-white"
-                        >
-                          <ExternalLink className="size-4" />Contract
-                        </a>
+                        {organizationExplorerBase ? (
+                          <a
+                            href={`${organizationExplorerBase}/address/${organization.wallet.contractAddress}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-slate-950 px-3 text-xs font-semibold text-white"
+                          >
+                            <ExternalLink className="size-4" />Contract
+                          </a>
+                        ) : null}
                       </div>
                     </div>
                   </div>

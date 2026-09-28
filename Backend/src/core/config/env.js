@@ -39,6 +39,12 @@ const env = Object.freeze({
     secret: process.env.JWT_SECRET,
     expiry: process.env.JWT_EXPIRY || '1h',
   },
+  chainSecrets: {
+    // Database-held signer keys are encrypted with this application-level root.
+    // It must never be stored in chainMaster. JWT_SECRET is used only as a local
+    // backwards-compatible fallback by the encryption utility.
+    encryptionKey: process.env.CHAIN_SECRET_ENCRYPTION_KEY,
+  },
   auth: {
     issuerRoleUid: process.env.ISSUER_ROLE_UID || '00000000-0000-4000-8000-000000000003',
     investorRoleUid: process.env.INVESTOR_ROLE_UID || '00000000-0000-4000-8000-000000000004',
@@ -97,6 +103,7 @@ const env = Object.freeze({
     platformControllerAddress: process.env.PLATFORM_CONTROLLER_ADDRESS
       || '0x4052D80c222111234b89AFDfff597B5De8DA50cd',
     identityFactoryAddress: process.env.IDENTITY_FACTORY_ADDRESS,
+    idFactoryAccessManagerAddress: process.env.ID_FACTORY_ACCESS_MANAGER_ADDRESS,
     trexFactoryAddress: process.env.TREX_FACTORY_ADDRESS,
     confirmations: Number(process.env.BLOCKCHAIN_CONFIRMATIONS || 2),
     // Registry confirmation is intentionally conservative because CONFIRMED is authoritative.
@@ -180,6 +187,9 @@ const validateEnvironment = () => {
   const { error } = requiredSchema.validate(process.env, { abortEarly: false });
   if (error) {
     throw new Error(`Invalid environment configuration: ${error.details.map((item) => item.message).join('; ')}`);
+  }
+  if (env.nodeEnv === 'production' && String(env.chainSecrets.encryptionKey || '').length < 32) {
+    throw new Error('Invalid environment configuration: CHAIN_SECRET_ENCRYPTION_KEY must contain at least 32 characters in production.');
   }
 };
 

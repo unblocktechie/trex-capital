@@ -282,10 +282,11 @@ export function VerifyIdentityClaimsModal({
   requiredClaimTopics = [],
   investorName = 'this investor',
   assetName = 'this investment',
+  chainId,
   onVerified,
 }) {
   const { organization, isLoading: organizationLoading } = useOrganization({ enabled: open });
-  const wallet = useWalletConnection();
+  const wallet = useWalletConnection(chainId);
   const [status, setStatus] = useState(ISSUER_CLAIM_SIGNING_STATUS.PENDING);
   const [collectedClaims, setCollectedClaims] = useState([]);
   const [activeClaimIndex, setActiveClaimIndex] = useState(-1);

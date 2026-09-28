@@ -13,13 +13,26 @@ export function CurrencyAmount({
   children,
   className,
   iconSize = 'xs',
+  imageUrl = '',
+  name = '',
+  iconFallback = 'currency',
+  useBuiltInIcon = true,
   showSymbol = true,
+  title,
+  ariaLabel,
 }) {
   const normalizedSymbol = normalizeSymbol(symbol) || '—';
 
   return (
-    <span className={cn('currency-amount', className)}>
-      <TokenIcon symbol={normalizedSymbol} size={iconSize} />
+    <span className={cn('currency-amount', className)} title={title} aria-label={ariaLabel}>
+      <TokenIcon
+        symbol={normalizedSymbol}
+        name={name}
+        imageUrl={imageUrl}
+        size={iconSize}
+        fallback={iconFallback}
+        useBuiltInImages={useBuiltInIcon}
+      />
       <span className="currency-amount__value">{children}</span>
       {showSymbol ? <span className="currency-amount__symbol">{normalizedSymbol}</span> : null}
     </span>

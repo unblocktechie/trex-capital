@@ -6,22 +6,28 @@ import {
   LockKeyhole,
   ShieldCheck,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { CreateInvestorProfileModal } from '@/components/investor/CreateInvestorProfileModal';
 import { InvestorDocumentList } from '@/components/investor/InvestorDocumentReview';
 import { InvestorLayout } from '@/components/investor/InvestorLayout';
 import { InvestorActionBar } from '@/components/investor/InvestorPrimitives';
 import { WalletCard } from '@/components/investor/WalletCard';
+import { ChainSelector } from '@/components/common/ChainSelector';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { NO_INVESTMENT_EXPERIENCE_VALUE } from '@/constants/investor';
 import { useInvestorOnboarding } from '@/hooks/useInvestorOnboarding';
+import { useAuth } from '@/hooks/useAuth';
+import { usePublicChains } from '@/hooks/useChains';
+import { web3Config } from '@/config/web3';
 import { useCityOptions, useCountryOptions, useStateOptions } from '@/hooks/useLocationOptions';
 import { useWalletConnection } from '@/hooks/useWalletConnection';
 import { getErrorMessage } from '@/utils/error';
 import { isInvestorOnboardingReady } from '@/validations/investor.schemas';
 import { formatDate } from '@/utils/date';
+import { networkUserKey, useNetworkStore } from '@/store/network.store';
+import { useUiStore } from '@/store/ui.store';
 
 const displayLabel = (options, value) =>
   options.find((option) => String(option.value) === String(value))?.label || value || 'Not provided';
@@ -59,7 +65,23 @@ export default function ReviewSubmitStep() {
     submitting,
     downloadDocument,
   } = useInvestorOnboarding();
-  const connectedWallet = useWalletConnection();
+  const { user } = useAuth();
+  const userKey = networkUserKey(user);
+  const persistedChainId = useNetworkStore((store) => store.activeChainByUser[userKey] || null);
+  const setActiveChainId = useNetworkStore((store) => store.setActiveChainId);
+  const setWalletRequiredChainId = useUiStore((store) => store.setWalletRequiredChainId);
+  const publicChains = usePublicChains();
+  const initialChainUid = web3Config.getChainRecordById(persistedChainId)?.chainUid || web3Config.defaultChainRecord?.chainUid || '';
+  const [selectedChainUid, setSelectedChainUid] = useState(initialChainUid);
+  const selectedChain = (publicChains.data || []).find((item) => item.chainUid === selectedChainUid) || publicChains.data?.[0] || null;
+  const connectedWallet = useWalletConnection(selectedChain?.chainId);
+
+  useEffect(() => {
+    setWalletRequiredChainId(selectedChain?.chainId);
+    if (selectedChain?.chainId) setActiveChainId(user, selectedChain.chainId, selectedChain.chainUid);
+  }, [selectedChain?.chainId, selectedChain?.chainUid, setActiveChainId, setWalletRequiredChainId, user]);
+
+  useEffect(() => () => setWalletRequiredChainId(null), [setWalletRequiredChainId]);
   const [modalOpen, setModalOpen] = useState(state.currentStep === 5);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [submissionError, setSubmissionError] = useState('');
@@ -110,6 +132,10 @@ export default function ReviewSubmitStep() {
       toast.error('Complete all required onboarding sections before creating the investor profile.');
       return;
     }
+    if (!selectedChain) {
+      toast.error('Select the network where your investor identity should be created.');
+      return;
+    }
     if (!activeWallet.isConnected) {
       toast.error('Connect the primary investor wallet before continuing.');
       return;
@@ -134,7 +160,7 @@ export default function ReviewSubmitStep() {
     setSubmissionError('');
     setLoadingMessage('Creating your investor profile…');
     try {
-      const { result } = await submitInvestor(activeWallet.address);
+      const { result } = await submitInvestor(activeWallet.address, selectedChain.chainUid);
       setModalOpen(false);
       const reference = result?.profileReference || '';
       toast.success(reference ? `Investor profile ${reference} created successfully.` : 'Investor profile created successfully.');
@@ -167,8 +193,18 @@ export default function ReviewSubmitStep() {
         <span className="eyebrow">Final action</span>
         <h2>Create your investor profile</h2>
         <p>Connect the primary wallet, review the entered information, and submit the completed onboarding record.</p>
-        <WalletCard wallet={activeWallet} />
-        <Button className="button--full" onClick={openProfileModal} disabled={!ready || !activeWallet.isConnected || !activeWallet.isCorrectNetwork || submitting} icon={ShieldCheck}>
+        <ChainSelector
+          id="investor-onboarding-chain"
+          chains={publicChains.data || []}
+          value={selectedChainUid}
+          onChange={(event) => setSelectedChainUid(event.target.value)}
+          disabled={submitting || publicChains.isPending}
+          label="First network"
+          description="Your investor ONCHAINID will be created on this network during submission."
+          error={publicChains.isError ? 'Unable to load supported networks.' : ''}
+        />
+        <WalletCard wallet={activeWallet} requiredChainId={selectedChain?.chainId} />
+        <Button className="button--full" onClick={openProfileModal} disabled={!ready || !selectedChain || !activeWallet.isConnected || !activeWallet.isCorrectNetwork || submitting} icon={ShieldCheck}>
           Create Investor Profile
         </Button>
         <small>Last updated: {lastUpdated}</small>

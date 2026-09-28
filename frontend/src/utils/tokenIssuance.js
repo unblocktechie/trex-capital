@@ -1,10 +1,48 @@
 import { parseExactUnits } from '@/utils/paymentAmounts';
+import { multiplyDecimalStrings } from '@/utils/currency';
 import { isAddress } from 'viem';
 import { TOKEN_CREATION_AGENT_ROLES } from '@/config/tokenIssuance';
 import { getTokenLogoValidationError } from '@/utils/tokenLogo';
 
 const positiveNumber = (value) => Number(value) > 0;
+const positiveExactDecimal = (value) => {
+  const normalized = String(value ?? '').trim();
+  return /^\d+(?:\.\d+)?$/.test(normalized) && /[1-9]/.test(normalized);
+};
 const optionalPositiveNumber = (value) => value === '' || Number(value) >= 0;
+
+export const DEFAULT_PAYMENT_TOKEN_DECIMALS = 6;
+
+export const normalizePaymentTokenDecimals = (value, fallback = DEFAULT_PAYMENT_TOKEN_DECIMALS) => {
+  const numeric = Number(value);
+  if (value !== '' && value !== null && value !== undefined
+    && Number.isInteger(numeric) && numeric >= 0 && numeric <= 36) {
+    return numeric;
+  }
+  return fallback;
+};
+
+export const decimalStepFor = (decimals) => {
+  const precision = normalizePaymentTokenDecimals(decimals);
+  return precision === 0 ? '1' : `0.${'0'.repeat(precision - 1)}1`;
+};
+
+// Keep the controlled price input in ordinary decimal notation and reject a change
+// as soon as it would exceed the selected payment token's on-chain precision.
+// This covers keyboard entry and pasted values without rounding user input.
+export const isDecimalInputWithinPrecision = (value, decimals) => {
+  const input = String(value ?? '');
+  if (input === '') return true;
+  if (!/^\d*(?:\.\d*)?$/.test(input)) return false;
+  const fraction = input.split('.')[1] || '';
+  return fraction.length <= normalizePaymentTokenDecimals(decimals);
+};
+
+const decimalPrecisionMessage = (decimals, subject = 'price') => {
+  const precision = normalizePaymentTokenDecimals(decimals);
+  if (precision === 0) return `Enter a positive ${subject} using whole numbers only.`;
+  return `Enter a positive ${subject} with at most ${precision} decimal place${precision === 1 ? '' : 's'}.`;
+};
 
 export const formatNumber = (value, options = {}) => {
   const numeric = Number(value);
@@ -29,12 +67,8 @@ export const formatMoney = (value, currency = 'USD') => {
   }
 };
 
-export const getImpliedValuation = (supply, price) => {
-  const totalSupply = Number(supply);
-  const initialPrice = Number(price);
-  if (!Number.isFinite(totalSupply) || !Number.isFinite(initialPrice)) return null;
-  return totalSupply * initialPrice;
-};
+export const getImpliedValuation = (supply, price) =>
+  multiplyDecimalStrings(supply, price) || null;
 
 export const validateTokenInformation = (data, supplyPricing = {}, options = {}) => {
   const errors = {};
@@ -67,8 +101,13 @@ export const validateTokenInformation = (data, supplyPricing = {}, options = {})
   }
 
   if (!supplyPricing.paymentTokenAddress) errors.paymentTokenAddress = 'Select a payment token.';
-  try { parseExactUnits(supplyPricing.initialPrice, 6); } catch { errors.initialPrice = 'Enter a positive price with at most 6 decimal places.'; }
-  if (!positiveNumber(supplyPricing.initialPrice)) {
+  const paymentTokenDecimals = normalizePaymentTokenDecimals(
+    options.paymentTokenDecimals ?? supplyPricing.paymentTokenDecimals,
+  );
+  try { parseExactUnits(supplyPricing.initialPrice, paymentTokenDecimals); } catch {
+    errors.initialPrice = decimalPrecisionMessage(paymentTokenDecimals);
+  }
+  if (!positiveExactDecimal(supplyPricing.initialPrice)) {
     errors.initialPrice = 'Enter a starting price greater than zero.';
   }
   if (!data.treasuryWallet.trim()) errors.treasuryWallet = 'An approved organization account is required.';
@@ -86,14 +125,19 @@ export const validateTokenInformation = (data, supplyPricing = {}, options = {})
 
 // Retained for compatibility with the previously separated Supply & Pricing page. The active
 // simplified wizard validates only the initial price exposed on Token Information.
-export const validateSupplyPricing = (data) => {
+export const validateSupplyPricing = (data, options = {}) => {
   const errors = {};
+  const paymentTokenDecimals = normalizePaymentTokenDecimals(
+    options.paymentTokenDecimals ?? data.paymentTokenDecimals,
+  );
   if (!positiveNumber(data.totalSupply)) {
     errors.totalSupply = 'Total supply must be greater than zero.';
   }
-  try { parseExactUnits(data.initialPrice, 6); } catch { errors.initialPrice = 'Enter a positive price with at most 6 decimal places.'; }
+  try { parseExactUnits(data.initialPrice, paymentTokenDecimals); } catch {
+    errors.initialPrice = decimalPrecisionMessage(paymentTokenDecimals);
+  }
   if (!data.paymentTokenAddress) errors.currency = 'Select a payment token.';
-  if (!positiveNumber(data.initialPrice)) {
+  if (!positiveExactDecimal(data.initialPrice)) {
     errors.initialPrice = 'Initial price must be greater than zero.';
   }
   if (!data.currency) errors.currency = 'Select a price currency.';
@@ -211,7 +255,13 @@ export const buildReviewChecklist = (state, wallet, expectedWallet = '', options
   });
   const claimErrors = validateIdentityClaims(state.identityClaims);
   const complianceErrors = validateCompliance(state.compliance);
-  const agentErrors = validateAgents(state.agents, expectedWallet);
+  // Before Management is saved, keep the strict organization-wallet check. Once the
+  // backend has advanced the draft to Review, persisted management-role addresses are
+  // authoritative and must not turn the completed step back into Action Needed after refresh.
+  const agentErrors = validateAgents(
+    state.agents,
+    options.managementStepCompleted ? '' : expectedWallet,
+  );
   const tokenValid = Object.keys(tokenErrors).length === 0;
   const claimsValid = Object.keys(claimErrors).length === 0;
   const complianceValid = Object.keys(complianceErrors).length === 0;

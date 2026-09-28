@@ -4,6 +4,8 @@ const { env } = require('../core/config/env');
 const { ApiError } = require('../core/errors/api-error');
 const { withTransaction } = require('../database/connection');
 const { logger } = require('./common/log.service');
+const { TokenDeploymentReceiptService } = require('./blockchain/token-deployment-receipt.service');
+const { assertSelectedChain } = require('../utils/selected-chain');
 
 const requiredFields = (data, fields, section) => {
   const missing = fields.filter((field) => data[field] === undefined || data[field] === null || data[field] === '');
@@ -57,6 +59,8 @@ class TokenService {
     deploymentReceiptService,
     attemptRepository,
     paymentTokenRepository,
+    chainRuntimeService = null,
+    userChainIdentityRepository = null,
     config = env.blockchain,
     transactionRunner = withTransaction,
   }) {
@@ -68,12 +72,35 @@ class TokenService {
     this.deploymentReceiptService = deploymentReceiptService;
     this.attemptRepository = attemptRepository;
     this.paymentTokenRepository = paymentTokenRepository;
+    this.chainRuntimeService = chainRuntimeService;
+    this.userChainIdentityRepository = userChainIdentityRepository;
     this.config = config;
     this.transactionRunner = transactionRunner;
   }
 
-  platformControllerAddress() {
-    const address = this.config?.platformControllerAddress;
+  async chainForToken(token = null, requestedChainUid = null) {
+    if (!this.chainRuntimeService) return this.config;
+    const chainUid = requestedChainUid || token?.chainUid;
+    return chainUid ? this.chainRuntimeService.byUid(chainUid) : this.chainRuntimeService.default();
+  }
+
+  async assertChainUnlocked(userUid, chainUid) {
+    if (!this.userChainIdentityRepository || !chainUid) return;
+    const identity = await this.userChainIdentityRepository.find(userUid, chainUid);
+    if (!identity || identity.status !== 'CREATED' || !identity.isUnlocked) {
+      throw new ApiError(409, 'Unlock this chain and create your ONCHAINID before creating a token on it.', {
+        chainUid,
+      }, 'CHAIN_LOCKED');
+    }
+  }
+
+  async receiptServiceFor(token) {
+    if (!this.chainRuntimeService) return this.deploymentReceiptService;
+    return new TokenDeploymentReceiptService(await this.chainForToken(token));
+  }
+
+  platformControllerAddress(config = this.config) {
+    const address = config?.platformControllerAddress;
     if (!address || !ethers.isAddress(address)) {
       throw new ApiError(
         500,
@@ -85,10 +112,10 @@ class TokenService {
     return ethers.getAddress(address);
   }
 
-  async paymentToken(address, action = null, executor) {
+  async paymentToken(address, action = null, executor, chainConfig = this.config) {
     const token = await this.paymentTokenRepository.findActiveByAddress(
       address,
-      this.config.chainId,
+      chainConfig.chainId,
       action,
       executor,
     );
@@ -103,8 +130,8 @@ class TokenService {
     return token;
   }
 
-  async defaultPaymentToken(action = null, executor) {
-    const token = await this.paymentTokenRepository.findDefault(this.config.chainId, action, executor);
+  async defaultPaymentToken(action = null, executor, chainConfig = this.config) {
+    const token = await this.paymentTokenRepository.findDefault(chainConfig.chainId, action, executor);
     if (!token) {
       throw new ApiError(
         500,
@@ -147,11 +174,12 @@ class TokenService {
   // one claim topic exists, and that the optimized image
   // is still present. Returns the loaded claim topics and country restrictions.
   async assertTokenReadyForDeployment(token, organization) {
+    const chainConfig = await this.chainForToken(token);
     requiredFields(token, DEPLOYMENT_REQUIRED_FIELDS, 'Token form');
     const paymentTokenAddress = token.paymentTokenAddress
-      || (await this.defaultPaymentToken('PURCHASE')).contractAddress;
-    await this.paymentToken(paymentTokenAddress, 'PURCHASE');
-    await this.paymentToken(paymentTokenAddress, 'REDEMPTION');
+      || (await this.defaultPaymentToken('PURCHASE', undefined, chainConfig)).contractAddress;
+    await this.paymentToken(paymentTokenAddress, 'PURCHASE', undefined, chainConfig);
+    await this.paymentToken(paymentTokenAddress, 'REDEMPTION', undefined, chainConfig);
     for (const field of ORGANIZATION_WALLET_FIELDS) {
       if (String(token[field]).toLowerCase() !== organization.walletAddress.toLowerCase()) {
         throw ApiError.badRequest(`${field} must match the approved organization walletAddress.`);
@@ -171,16 +199,17 @@ class TokenService {
     return { claimTopics, countryRestrictions };
   }
 
-  async getFullToken(user) {
+  async getFullToken(user, selectedChain = null) {
     await this.approvedOrganization(user);
     const token = await this.repository.findByUserUid(user.userUid);
     if (!token) return null;
+    if (selectedChain && token.chainUid !== selectedChain.chainUid) return null;
     const [claimTopics, countryRestrictions] = await Promise.all([
       this.repository.listClaimTopics(token.tokenUid),
       this.repository.listCountryRestrictions(token.tokenUid),
     ]);
     const paymentToken = token.paymentTokenAddress
-      ? await this.paymentTokenRepository.findActiveByAddress(token.paymentTokenAddress, this.config.chainId)
+      ? await this.paymentTokenRepository.findActiveByAddress(token.paymentTokenAddress, (await this.chainForToken(token)).chainId)
       : null;
     return {
       ...token,
@@ -191,12 +220,17 @@ class TokenService {
     };
   }
 
-  async getOrCreate(user, organization, executor) {
+  async getOrCreate(user, organization, executor, selectedChain = null) {
     const existing = await this.repository.findByUserUid(user.userUid, executor);
-    if (existing) return existing;
-    const defaultPaymentToken = await this.defaultPaymentToken(null, executor);
+    if (existing) {
+      assertSelectedChain(existing, selectedChain, 'Token');
+      return existing;
+    }
+    const chainConfig = await this.chainForToken(null, selectedChain?.chainUid || organization.onboardingChainUid);
+    const defaultPaymentToken = await this.defaultPaymentToken(null, executor, chainConfig);
     return this.repository.createForOrganization(organization, user.userUid, {
-      tokenAgentWalletAddress: this.platformControllerAddress(),
+      chainUid: chainConfig.chainUid,
+      tokenAgentWalletAddress: this.platformControllerAddress(chainConfig),
       paymentTokenAddress: defaultPaymentToken.contractAddress,
       currentStep: 'tokenInformation',
       isDraft: true,
@@ -204,10 +238,28 @@ class TokenService {
     }, executor);
   }
 
-  async saveInformation(user, input, imageFile) {
+  async saveInformation(user, input, imageFile, selectedChain = null) {
     const organization = await this.approvedOrganization(user);
     const current = await this.repository.findByUserUid(user.userUid);
+    // A draft may intentionally move to the header-selected network. Once it leaves draft,
+    // the selected-chain boundary is enforced before returning any edit-state information.
+    if (current && current.status !== 'draft') assertSelectedChain(current, selectedChain, 'Token');
     this.assertEditable(current);
+    // An explicit selection may change a draft's chain. If the client omits chainUid
+    // on a later save, retain the token's current selection rather than silently
+    // reverting to the organization's onboarding chain.
+    if (selectedChain && input.chainUid && input.chainUid !== selectedChain.chainUid) {
+      throw new ApiError(422, 'Token chain does not match the selected network.', undefined, 'SELECTED_CHAIN_MISMATCH');
+    }
+    const selectedChainUid = selectedChain?.chainUid || input.chainUid || current?.chainUid || organization.onboardingChainUid;
+    const chainConfig = await this.chainForToken(current, selectedChainUid);
+    await this.assertChainUnlocked(user.userUid, chainConfig.chainUid);
+    const isChainChange = Boolean(
+      current?.chainUid && selectedChainUid && current.chainUid !== selectedChainUid,
+    );
+    if (isChainChange && current.status !== 'draft') {
+      throw ApiError.conflict('The chain cannot be changed after the token leaves draft status.');
+    }
 
     if (!input.isDraft) {
       requiredFields(input, [
@@ -224,21 +276,25 @@ class TokenService {
     let processedImage;
     if (imageFile) processedImage = await this.imageService.process(imageFile);
     const { isDraft, ...fields } = input;
+    fields.chainUid = chainConfig.chainUid;
     if (fields.paymentTokenAddress) {
       fields.paymentTokenAddress = ethers.getAddress(
-        (await this.paymentToken(fields.paymentTokenAddress, 'PURCHASE')).contractAddress,
+        (await this.paymentToken(fields.paymentTokenAddress, 'PURCHASE', undefined, chainConfig)).contractAddress,
       );
     }
-    if (!fields.paymentTokenAddress && !current?.paymentTokenAddress) {
-      fields.paymentTokenAddress = (await this.defaultPaymentToken('PURCHASE')).contractAddress;
+    // A payment token belongs to one chain. When a draft moves to another chain,
+    // never carry the prior chain's payment token forward implicitly.
+    if (!fields.paymentTokenAddress && (isChainChange || !current?.paymentTokenAddress)) {
+      fields.paymentTokenAddress = (await this.defaultPaymentToken('PURCHASE', undefined, chainConfig)).contractAddress;
     }
     const update = {
       ...fields,
       // Never accept the Token Agent from client state. New rows receive the current default,
-      // while a token created under an earlier Platform Controller keeps its stored agent.
-      tokenAgentWalletAddress: current
+      // while an unchanged token keeps its stored agent. A draft moved to another chain
+      // receives that chain's Platform Controller because it has not been deployed yet.
+      tokenAgentWalletAddress: current && !isChainChange
         ? current.tokenAgentWalletAddress
-        : this.platformControllerAddress(),
+        : this.platformControllerAddress(chainConfig),
       ...(fields.initialTokenPrice !== undefined
         ? { currentTokenPrice: fields.initialTokenPrice }
         : {}),
@@ -264,12 +320,13 @@ class TokenService {
     }
   }
 
-  async updateCurrentPrice(user, input) {
+  async updateCurrentPrice(user, input, selectedChain = null) {
     const organization = await this.approvedOrganization(user);
     const token = await this.repository.findByUserUid(user.userUid);
     if (!token || token.organizationUid !== organization.organizationUid) {
       throw new ApiError(404, 'Owned token was not found.', undefined, 'TOKEN_NOT_FOUND');
     }
+    assertSelectedChain(token, selectedChain, 'Token');
     if (token.status !== 'deployed' || !token.isActive) {
       throw new ApiError(409, 'Only an active deployed token price can be changed.', undefined, 'TOKEN_NOT_DEPLOYED');
     }
@@ -284,9 +341,9 @@ class TokenService {
     return updated;
   }
 
-  async saveClaims(user, input) {
+  async saveClaims(user, input, selectedChain = null) {
     const organization = await this.approvedOrganization(user);
-    const current = await this.getOrCreate(user, organization);
+    const current = await this.getOrCreate(user, organization, undefined, selectedChain);
     this.assertEditable(current);
     if (!input.isDraft && !input.claimTopicUids.length) {
       throw ApiError.badRequest('At least one claim topic is required.');
@@ -313,9 +370,9 @@ class TokenService {
     });
   }
 
-  async saveCompliance(user, input) {
+  async saveCompliance(user, input, selectedChain = null) {
     const organization = await this.approvedOrganization(user);
-    const current = await this.getOrCreate(user, organization);
+    const current = await this.getOrCreate(user, organization, undefined, selectedChain);
     this.assertEditable(current);
     if (!input.isDraft) {
       requiredFields(input, [
@@ -354,9 +411,9 @@ class TokenService {
     }
   }
 
-  async saveGovernance(user, input) {
+  async saveGovernance(user, input, selectedChain = null) {
     const organization = await this.approvedOrganization(user);
-    const current = await this.getOrCreate(user, organization);
+    const current = await this.getOrCreate(user, organization, undefined, selectedChain);
     this.assertEditable(current);
     this.validateOrganizationWallet(
       'identityManagerWalletAddress',
@@ -378,10 +435,11 @@ class TokenService {
   // Final submit. Backward compatible: accepts { transactionHash } alone (legacy),
   // or { transactionHash, deploymentAttemptUid } for the two-phase flow. Returns
   // either the finalized token, or a { pending: true, ... } marker for the 202 path.
-  async submit(user, { transactionHash, deploymentAttemptUid }) {
+  async submit(user, { transactionHash, deploymentAttemptUid }, selectedChain = null) {
     const organization = await this.approvedOrganization(user);
     const token = await this.repository.findByUserUid(user.userUid);
     if (!token) throw ApiError.badRequest('Token form has not been started.');
+    assertSelectedChain(token, selectedChain, 'Token');
     const normalizedHash = String(transactionHash).toLowerCase();
 
     // Idempotent short-circuit: an already-deployed token with the same hash succeeds.
@@ -422,10 +480,11 @@ class TokenService {
     }
 
     await this.assertTokenReadyForDeployment(token, organization);
+    const deploymentReceiptService = await this.receiptServiceFor(token);
 
     // A broadcast hash already tied to a different token is a hard conflict.
     if (this.repository.findByDeployTxHashExcept) {
-      const hashOwner = await this.repository.findByDeployTxHashExcept(normalizedHash, token.tokenUid);
+      const hashOwner = await this.repository.findByDeployTxHashExcept(normalizedHash, token.tokenUid, undefined, token.chainUid);
       if (hashOwner) {
         throw new ApiError(409, 'This transaction hash is already linked to another token.', {
           transactionHash: normalizedHash,
@@ -435,10 +494,10 @@ class TokenService {
 
     // Fast, non-blocking confirmation pre-check (when the receipt service supports it):
     // return 202/confirming instead of blocking on a long wait or failing prematurely.
-    if (typeof this.deploymentReceiptService.checkConfirmation === 'function') {
+    if (typeof deploymentReceiptService.checkConfirmation === 'function') {
       let confirmation;
       try {
-        confirmation = await this.deploymentReceiptService.checkConfirmation(normalizedHash);
+        confirmation = await deploymentReceiptService.checkConfirmation(normalizedHash);
       } catch (error) {
         // Treat a pre-check RPC problem as "keep waiting", never as a failure.
         confirmation = { ready: false };
@@ -453,7 +512,7 @@ class TokenService {
 
     let deployment;
     try {
-      deployment = await this.deploymentReceiptService.verify(normalizedHash);
+      deployment = await deploymentReceiptService.verify(normalizedHash);
     } catch (error) {
       if (isPendingReceiptError(error)) return this.markConfirming(deploymentAttempt, normalizedHash);
       if (isRpcUnavailableError(error)) {
@@ -464,7 +523,7 @@ class TokenService {
 
     // The verified contract address must not already belong to another token.
     if (this.repository.findByTokenAddressExcept) {
-      const addressOwner = await this.repository.findByTokenAddressExcept(deployment.tokenAddress, token.tokenUid);
+      const addressOwner = await this.repository.findByTokenAddressExcept(deployment.tokenAddress, token.tokenUid, undefined, token.chainUid);
       if (addressOwner) {
         throw new ApiError(409, 'The deployed contract address is already assigned to another token.', {
           contractAddress: deployment.tokenAddress,
@@ -593,10 +652,11 @@ class TokenService {
     }, 'TOKEN_DEPLOYMENT_VERIFICATION_FAILED');
   }
 
-  async getImage(user) {
+  async getImage(user, selectedChain = null) {
     await this.approvedOrganization(user);
     const token = await this.repository.findByUserUid(user.userUid);
     if (!token?.imageStorageKey) throw ApiError.notFound('Token image was not found.');
+    assertSelectedChain(token, selectedChain, 'Token');
     const filePath = this.imageService.resolve(token.imageStorageKey);
     if (!fs.existsSync(filePath)) throw ApiError.notFound('Token image was not found.');
     return { token, filePath };

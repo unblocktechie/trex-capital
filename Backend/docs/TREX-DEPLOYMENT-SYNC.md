@@ -38,9 +38,10 @@ independently of any frontend state.
 | `TrexDeploymentStartBlock` | `0` | Optional first-run start block. Set to the factory deploy block for full recovery; `0` starts one offset window behind the safe head. |
 | `TrexDeploymentSyncEnabled` | `true` | On/off switch (DB-level). |
 
-Blockchain config is reused from the existing env: `SEPOLIA_RPC_URL`, chain `11155111`, and
-`TREX_FACTORY_ADDRESS` (`0xe221247C52ece62027eb7D01D0f522d7363Fe875`). No RPC URL or key is
-hardcoded.
+Each run loads the active chain from `chainMaster`, including its RPC URLs, chain ID,
+`trexFactoryAddress`, confirmation count, scan start block, and indexer flag. The checkpoint is
+scoped by chain ID, so two networks never share progress. No RPC URL, factory address, or chain ID
+is hardcoded in the runner.
 
 ## Processing flow
 

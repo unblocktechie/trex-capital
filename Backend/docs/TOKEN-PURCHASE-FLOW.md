@@ -33,10 +33,10 @@ PURCHASE_INDEXER_START_BLOCK=0
 PURCHASE_WORKER_ENABLED=true
 ```
 
-Supported payment addresses are maintained in `paymentTokenMaster`; token creation stores
-the issuer's selected address in `tokenMaster.paymentTokenAddress`. The backend reads `decimals()`
-from that contract and validates it against the active database catalogue. `DEPLOYER_PRIVATE_KEY`, `DEPLOYER_ADDRESS`,
-`SEPOLIA_RPC_URL`, and `BLOCKCHAIN_CHAIN_ID` use the existing blockchain configuration.
+Supported payment addresses are maintained in chain-linked `paymentTokenMaster` rows; token
+creation stores the issuer's selected address in `tokenMaster.paymentTokenAddress`. The legacy
+worker is disabled. Where retained records are reconciled, runtime RPC, chain, confirmation, and
+contract settings come from the related `chainMaster` row rather than global environment values.
 
 ## APIs
 

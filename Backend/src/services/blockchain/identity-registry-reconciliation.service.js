@@ -279,7 +279,7 @@ class IdentityRegistryReconciliationService {
       if (!supported.includes(chainId)) throw new Error(`Registry indexer RPC is connected to unsupported chain ${chainId}.`);
 
       const settingStart = Number(await this.getSettingRaw(SETTING_KEYS.startBlock));
-      const databaseStart = await this.repository.findIndexerStartBlock();
+      const databaseStart = await this.repository.findIndexerStartBlock(chainId);
       const configuredStart = Math.max(0, Math.trunc(settingStart > 0 ? settingStart : (this.config.registryIndexerStartBlock || databaseStart || 0)));
       await this.checkpointRepository.ensureCheckpoint(INDEXER_NAME, chainId, configuredStart);
       leased = await this.checkpointRepository.acquireLease(INDEXER_NAME, chainId, this.leaseOwner, leaseSeconds);
@@ -309,7 +309,7 @@ class IdentityRegistryReconciliationService {
         }
       }
 
-      const addresses = (await this.repository.listRegistryAddresses()).filter(ethers.isAddress);
+      const addresses = (await this.repository.listRegistryAddresses(chainId)).filter(ethers.isAddress);
       stats.registryCount = addresses.length;
       const batches = chunk(addresses, addressBatchSize);
       let from = Number(checkpoint.lastIndexedBlock) + 1;
@@ -343,7 +343,7 @@ class IdentityRegistryReconciliationService {
       }
 
       await this.processStoredEvents(chainId, eventBatchSize, stats);
-      const candidates = await this.repository.findRecoveryCandidates(recoveryBatchSize);
+      const candidates = await this.repository.findRecoveryCandidates(recoveryBatchSize, undefined, chainId);
       stats.recoveryCandidates = candidates.length;
       for (const candidate of candidates) {
         await this.recoverCandidate(candidate, provider, chainId, safeLatestBlock, lookbackBlocks, stats);

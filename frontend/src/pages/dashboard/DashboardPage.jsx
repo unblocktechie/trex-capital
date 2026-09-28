@@ -218,6 +218,7 @@ function IssuerDashboardPage() {
     queryKey: [
       'dashboard',
       'issuer-overview',
+      tokenRecord.selectedChainUid || 'unselected',
       tokenRecord.tokenUid || 'no-token',
       tokenRecord.isDeployed ? 'deployed' : 'not-deployed',
     ],
@@ -227,7 +228,7 @@ function IssuerDashboardPage() {
         includeInvestors: tokenRecord.isDeployed,
         signal,
       }),
-    enabled: !tokenRecord.isLoading,
+    enabled: Boolean(tokenRecord.selectedChainUid) && !tokenRecord.isLoading,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
@@ -791,8 +792,9 @@ function InvestorDashboardPage() {
   const investorQuery = useInvestorProfileData();
 
   const overview = useQuery({
-    queryKey: ['dashboard', 'investor-overview'],
+    queryKey: ['dashboard', 'investor-overview', investorQuery.selectedChainUid || 'unselected'],
     queryFn: ({ signal }) => dashboardApi.getInvestorOverview({ signal }),
+    enabled: Boolean(investorQuery.selectedChainUid),
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });

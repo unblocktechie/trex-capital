@@ -1,5 +1,4 @@
 const ethers = require('ethers');
-const { env } = require('../../core/config/env');
 const { ApiError } = require('../../core/errors/api-error');
 
 const PLATFORM_CONTROLLER_PAYMENT_TOKEN_ABI = [
@@ -7,8 +6,9 @@ const PLATFORM_CONTROLLER_PAYMENT_TOKEN_ABI = [
 ];
 
 class PaymentTokenRegistryService {
-  constructor({ paymentTokenRepository, config = env.blockchain, dependencies = {} }) {
+  constructor({ paymentTokenRepository, chainRuntimeService = null, config = null, dependencies = {} }) {
     this.paymentTokenRepository = paymentTokenRepository;
+    this.chainRuntimeService = chainRuntimeService;
     this.config = config;
     this.providerFactory = dependencies.providerFactory
       || ((rpcUrl) => new ethers.JsonRpcProvider(rpcUrl));
@@ -16,15 +16,15 @@ class PaymentTokenRegistryService {
       || ((address, provider) => new ethers.Contract(address, PLATFORM_CONTROLLER_PAYMENT_TOKEN_ABI, provider));
   }
 
-  rpcUrls() {
+  rpcUrls(config) {
     return [...new Set([
-      this.config.sepoliaRpcUrl,
-      ...(this.config.sepoliaFallbackRpcUrls || []),
+      config.sepoliaRpcUrl,
+      ...(config.sepoliaFallbackRpcUrls || []),
     ].filter(Boolean))];
   }
 
-  controllerAddress() {
-    if (!ethers.isAddress(this.config.platformControllerAddress || '')) {
+  controllerAddress(config) {
+    if (!ethers.isAddress(config.platformControllerAddress || '')) {
       throw new ApiError(
         503,
         'Platform Controller payment-token registry is not configured.',
@@ -32,17 +32,28 @@ class PaymentTokenRegistryService {
         'PAYMENT_TOKEN_REGISTRY_NOT_CONFIGURED',
       );
     }
-    return ethers.getAddress(this.config.platformControllerAddress);
+    return ethers.getAddress(config.platformControllerAddress);
   }
 
-  async onChainAddresses(chainId) {
-    const rpcUrls = this.rpcUrls();
+  async resolveConfig(selector = {}) {
+    if (typeof selector === 'number') selector = { chainId: selector };
+    if (this.chainRuntimeService) {
+      if (selector.chainUid) return this.chainRuntimeService.byUid(selector.chainUid);
+      if (selector.chainId) return this.chainRuntimeService.byChainId(selector.chainId);
+      return this.chainRuntimeService.default();
+    }
+    if (this.config) return this.config;
+    throw new ApiError(503, 'Blockchain network is not configured.', undefined, 'CHAIN_NOT_CONFIGURED');
+  }
+
+  async onChainAddresses(config) {
+    const rpcUrls = this.rpcUrls(config);
     if (!rpcUrls.length) {
       throw new ApiError(503, 'Blockchain RPC is not configured.', undefined, 'RPC_UNAVAILABLE');
     }
 
-    const expectedChainId = Number(chainId);
-    const controllerAddress = this.controllerAddress();
+    const expectedChainId = Number(config.chainId);
+    const controllerAddress = this.controllerAddress(config);
     for (const rpcUrl of rpcUrls) {
       const provider = this.providerFactory(rpcUrl);
       try {
@@ -69,10 +80,12 @@ class PaymentTokenRegistryService {
     );
   }
 
-  async listEnabled(chainId = this.config.chainId, action = null) {
+  async listEnabled(selector = {}, action = null) {
+    if (typeof selector === 'number') selector = { chainId: selector, action };
+    const config = await this.resolveConfig(selector);
     const [databaseTokens, onChainAddresses] = await Promise.all([
-      this.paymentTokenRepository.listActive(chainId, action),
-      this.onChainAddresses(chainId),
+      this.paymentTokenRepository.listActive(config.chainId, selector.action || action),
+      this.onChainAddresses(config),
     ]);
     const enabledAddresses = new Set(onChainAddresses.map((address) => address.toLowerCase()));
     return databaseTokens.filter(

@@ -182,7 +182,7 @@ class BlockchainTransactionIndexerService {
       const network = await provider.getNetwork();
       const chainId = Number(network.chainId);
       if (chainId !== Number(this.config.chainId)) throw new Error(`Transaction indexer RPC is connected to chain ${chainId}.`);
-      const tokens = await this.repository.listIndexedTokens();
+      const tokens = await this.repository.listIndexedTokens(chainId);
       if (!tokens.length) return { ...stats, tokenCount: 0 };
       const latestBlock = Number(await provider.getBlockNumber());
       const confirmations = Math.max(1, await this.number(

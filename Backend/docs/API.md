@@ -657,11 +657,12 @@ for execution or recovery. See `docs/BLOCKCHAIN-TRANSACTION-INDEXER.md` and
 ## Investor token purchase (USDT)
 
 - `GET /investments/me/portfolio?page=1&limit=20&search=` returns one row per token for which the
-  authenticated investor has at least one `COMPLETED` purchase. Search covers token name, symbol,
-  token address, and issuer company. Each row includes full marketplace token metadata, image URL,
-  chain ID, issuer information, country restrictions, required claim topics, and portfolio totals.
-  The totals include purchase/redemption counts, tokens purchased, USDT invested, completed tokens
-  redeemed, remaining database-derived net token amount, average purchase price, and activity dates.
+  authenticated investor has a canonical `CONFIRMED` investment or received transfer. Canonical
+  `INVEST`, `TRANSFER`, and `REDEMPTION` activity is authoritative; legacy completed rows remain a
+  compatibility fallback and are excluded when the same transaction hash is already canonical.
+  Search covers token name, symbol, token address, and issuer company. Each row includes full
+  marketplace token metadata, chain and issuer information, restrictions, required claim topics,
+  investment totals, transfers, redemptions, net token amount, average price, and activity dates.
 
 - `GET /investments/tokens/{tokenUid}/purchases?page=1&limit=20&search=&status=all` returns the
   authenticated investor's legacy purchase history. It is retained read-only for production-data
@@ -740,3 +741,33 @@ The viewed endpoint idempotently changes `SENT` to `VIEWED`. The email button po
 - `404` route/resource absent; `409` duplicate unique value
 - `422` request validation; `429` rate limit; `500` database/unexpected failure
 - `502` on-chain identity creation failed; the organization was not approved
+
+## Multichain configuration and ONCHAINID access
+
+Public and authenticated-user endpoints:
+
+- `GET /chains` returns active wallet-safe chain metadata. It never returns the internal RPC or signer.
+- `GET /chains/{chainUid}/config` returns the selected chain's complete browser-safe deployment configuration: public RPC, explorer, native currency, confirmation policy, platform contracts, implementation contracts, compliance modules, and payment tokens independently verified against the Platform Controller.
+- `GET /chains/me` returns active chains plus the caller's `LOCKED`, `CREATING`, `FAILED`, or `CREATED` ONCHAINID state.
+- `POST /chains/{chainUid}/unlock` idempotently creates/reuses the Issuer or Investor ONCHAINID on that chain. Completed onboarding is required.
+- ONCHAINID creation is submitted by the backend signer to the chain-specific `IDFactoryAccessManager`; the manager delegates the authorized call to Identity Factory. The factory remains the authoritative source for `getIdentity(wallet)` reads.
+- Every authenticated Investor or Issuer request under `/investors`, `/organizations`, `/tokens`, `/investments`, `/investor/claims`, and `/issuer/claims` must include `X-Chain-Uid`. Marketplace, token management/deployment, subscriptions, claims, invitations, registry operations, redemptions, transfers, purchases, and canonical transaction history are scoped to that selected chain. Administrator routes are unchanged.
+- `POST /investments/transactions/confirm` additionally requires the submitted `chainId` to match the selected chain header.
+- `GET /payment-tokens?chainUid={chainUid}&action=PURCHASE|REDEMPTION` returns active database tokens that are also enabled by that chain's Platform Controller.
+- `GET /token-options?chainUid={chainUid}` returns token-wizard masters with the chain-filtered payment-token list.
+
+`chainUid` is accepted by `POST /organizations/me/submit`, `POST /investors/me/submit`, and `PUT /tokens/me/information`. For Issuer and Investor sessions, the `X-Chain-Uid` header is authoritative; when a body `chainUid` is present it must match the header. A token's chain may be changed while its status is `draft`; after it leaves `draft`, the chain is immutable. Changing a draft's chain revalidates the Issuer's per-chain identity, the selected payment token, and the target chain's Platform Controller. The Issuer must have a `CREATED` and unlocked per-chain identity for the selected chain.
+
+Super Admin management endpoints:
+
+- `GET|POST /admin/chains`
+- `GET|PATCH /admin/chains/{chainUid}`
+- `PUT /admin/chains/{chainUid}/image` uploads or replaces the network image (`multipart/form-data`, field `image`).
+- `GET /admin/chains/{chainUid}/audits` returns the append-only change history.
+- `GET|POST /admin/payment-tokens`
+- `GET|PATCH|DELETE /admin/payment-tokens/{paymentTokenUid}`
+- `PUT /admin/payment-tokens/{paymentTokenUid}/image` uploads or replaces the payment-token image.
+
+Chain creation requires the complete deployment suite plus every address returned by the Platform Controller's `paymentTokens()` function. It validates the RPC chain ID, deployed bytecode, exact payment-token registry membership, ERC-20 metadata, EVM addresses, and private-key/address consistency. Payment-token master rows are created in the same database transaction as the chain. After creation, only `publicRpcUrl`, `explorerUrl`, `fallbackRpcUrls`, `isActive`, and the image may be changed. Network deletion is intentionally unsupported. Every API-created network change is written to `chainMasterAudit` with before/after values and the authenticated administrator. `deployerPrivateKey` remains write-only and encrypted. Internal `rpcUrl`, `fallbackRpcUrls`, and signer data are never returned by the public selected-chain endpoint.
+
+`supportsPurchase` and `supportsRedemption` are accepted during payment-token creation and are immutable afterward. Public image endpoints are `GET /chains/{chainUid}/image` and `GET /payment-tokens/{paymentTokenUid}/image`.

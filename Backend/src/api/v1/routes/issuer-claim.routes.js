@@ -5,9 +5,10 @@ const schemas = require('../../../schemas/issuer-claim.schema');
 
 // Issuer claim-signature verification. Authenticated + DB-authorized (permissionMaster),
 // issuer-only. See 20260814_issuer_claim_verification.sql.
-const createIssuerClaimRouter = ({ controller, authenticate, authorize }) => {
+const createIssuerClaimRouter = ({ controller, authenticate, authorize, requireInvestorChain }) => {
   const router = express.Router();
   router.use(authenticate);
+  router.use(requireInvestorChain);
   router.post('/sign', validate({ body: schemas.signClaims }), authorize, asyncHandler(controller.sign));
   router.get('/:subscriptionId', validate({ params: schemas.subscriptionParams }), authorize, asyncHandler(controller.status));
   return router;

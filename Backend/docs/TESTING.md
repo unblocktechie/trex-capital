@@ -529,12 +529,12 @@ Their transaction-orchestration POST endpoints and runners are retired.
    first catch the USDT indexer up; it expires the row only after catch-up and event matching.
 
 11. Apply `database/migrations/20260830_add_investor_portfolio_permission.sql` and call
-    `GET /api/v1/investments/me/portfolio?page=1&limit=20&search=`. Expect only tokens with at least
-    one `COMPLETED` purchase for the authenticated investor. Verify token name, symbol, image URL,
-    token/registry addresses, chain ID, issuer, restrictions, required claims, purchase totals, USDT
-    totals, completed-redemption totals, net token amount, average price, counts, and dates. Search
-    by token name, symbol, token address, and issuer company. Confirm a second investor cannot see
-    the first investor's portfolio.
+    `GET /api/v1/investments/me/portfolio?page=1&limit=20&search=`. Confirm a frontend-executed
+    investment appears after its canonical `blockchainTransaction` becomes `CONFIRMED`, even when
+    no legacy `tokenPurchase` intent exists. Verify confirmed transfers/redemptions adjust the net
+    token amount, legacy completed rows remain visible, and a legacy row synchronized to the same
+    canonical transaction hash is not counted twice. Search by token name, symbol, token address,
+    and issuer company. Confirm a second investor cannot see the first investor's portfolio.
 
 ## Legacy manual token redemption settlement
 

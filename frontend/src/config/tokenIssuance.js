@@ -182,7 +182,7 @@ export const COUNTRY_OPTIONS = Object.freeze([
 ]);
 
 export const DEPLOYMENT_STAGES = Object.freeze([
-  'Checking your organization wallet and Sepolia network',
+  'Checking your organization wallet and selected network',
   'Preparing investor verification and transfer rules',
   'Preparing secure token creation',
   'Confirming token creation and transfer access',

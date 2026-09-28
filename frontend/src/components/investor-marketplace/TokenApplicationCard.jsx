@@ -10,9 +10,12 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { CountryFlagIcon } from '@/components/common/CountryFlagIcon';
+import { CurrencyAmount } from '@/components/common/CurrencyAmount';
+import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import { MarketplaceStatusBadge } from './MarketplaceStatusBadge';
 import { useMarketplaceTokenImageUrl } from './MarketplaceTokenImage';
 import { MARKETPLACE_STATUS } from '@/services/investor/investorMarketplaceLocalService';
+import { usePaymentTokenMetadata } from '@/hooks/usePaymentTokenMetadata';
 
 const STATUS_ACTION = Object.freeze({
   [MARKETPLACE_STATUS.NOT_APPLIED]: 'Request to Invest',
@@ -64,10 +67,6 @@ const numericValue = (...values) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const moneyLabel = (value, currency) => {
-  if (value == null) return '—';
-  return `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 6 })}${currency ? ` ${currency}` : ''}`;
-};
 
 const deriveAccentHue = (token) => {
   const source = String(token?.symbol || token?.tokenSymbol || token?.id || token?.tokenUid || 'token');
@@ -80,8 +79,29 @@ const deriveAccentHue = (token) => {
 
 const normalizeCardData = (token = {}) => {
   const nestedToken = token.token || token.tokenSummary || {};
-  const symbol = String(firstValue(token.symbol, token.tokenSymbol, nestedToken.symbol, nestedToken.tokenSymbol, '—')).toUpperCase();
-  const name = firstValue(token.name, token.tokenName, nestedToken.name, nestedToken.tokenName, '—');
+  const tokenInformation = token.tokenInformation
+    || token.information
+    || nestedToken.tokenInformation
+    || nestedToken.information
+    || {};
+  const symbol = String(firstValue(
+    token.symbol,
+    token.tokenSymbol,
+    tokenInformation.symbol,
+    tokenInformation.tokenSymbol,
+    nestedToken.symbol,
+    nestedToken.tokenSymbol,
+    '—',
+  )).toUpperCase();
+  const name = firstValue(
+    token.name,
+    token.tokenName,
+    tokenInformation.name,
+    tokenInformation.tokenName,
+    nestedToken.name,
+    nestedToken.tokenName,
+    '—',
+  );
   const owner = firstValue(
     token.legalCompanyName,
     token.organizationName,
@@ -95,7 +115,21 @@ const normalizeCardData = (token = {}) => {
     nestedToken.organization?.organizationName,
     nestedToken.issuer,
   );
-  const price = numericValue(token.currentTokenPrice, token.currentPrice, token.price, nestedToken.currentTokenPrice, nestedToken.currentPrice, nestedToken.price, token.initialTokenPrice, token.initialPrice, nestedToken.initialTokenPrice);
+  const price = firstValue(
+    token.currentTokenPriceExact,
+    token.currentTokenPrice,
+    token.currentPrice,
+    token.price,
+    nestedToken.currentTokenPriceExact,
+    nestedToken.currentTokenPrice,
+    nestedToken.currentPrice,
+    nestedToken.price,
+    token.initialTokenPriceExact,
+    token.initialTokenPrice,
+    token.initialPrice,
+    nestedToken.initialTokenPriceExact,
+    nestedToken.initialTokenPrice,
+  );
   const maxHolders = numericValue(
     token.maxHolders,
     token.maxInvestors,
@@ -136,7 +170,31 @@ const normalizeCardData = (token = {}) => {
       nestedToken.countryCode,
       '',
     ),
-    currency: String(firstValue(token.currency, nestedToken.currency, 'USDT')).toUpperCase(),
+    paymentTokenAddress: firstValue(
+      token.paymentTokenAddress,
+      token.paymentToken?.contractAddress,
+      token.paymentToken?.address,
+      tokenInformation.paymentTokenAddress,
+      tokenInformation.paymentToken?.contractAddress,
+      tokenInformation.paymentToken?.address,
+      nestedToken.paymentTokenAddress,
+      nestedToken.paymentToken?.contractAddress,
+      nestedToken.paymentToken?.address,
+      '',
+    ),
+    chainUid: firstValue(token.chainUid, tokenInformation.chainUid, nestedToken.chainUid, ''),
+    chainId: numericValue(token.chainId, tokenInformation.chainId, nestedToken.chainId),
+    currency: String(firstValue(
+      token.paymentTokenSymbol,
+      token.paymentToken?.symbol,
+      token.currency,
+      tokenInformation.paymentTokenSymbol,
+      tokenInformation.paymentToken?.symbol,
+      nestedToken.paymentTokenSymbol,
+      nestedToken.paymentToken?.symbol,
+      nestedToken.currency,
+      '',
+    )).toUpperCase(),
     standard: firstValue(token.standard, token.tokenStandard, nestedToken.standard, 'ERC-3643'),
     status: normalizeApplicationStatus(firstValue(token.applicationStatus, token.interest?.status, token.status)),
   };
@@ -154,6 +212,13 @@ export function TokenApplicationCard({
   className = '',
 }) {
   const card = normalizeCardData(token);
+  const paymentToken = usePaymentTokenMetadata({
+    paymentTokenAddress: card.paymentTokenAddress,
+    paymentTokenSymbol: card.currency,
+    chainUid: card.chainUid,
+    chainId: card.chainId,
+  });
+  const paymentSymbol = paymentToken.symbol || card.currency || '—';
   const imageUrl = useMarketplaceTokenImageUrl(token);
   const StatusIcon = STATUS_ICON[card.status] || LockKeyhole;
   const accentHue = deriveAccentHue(token);
@@ -205,7 +270,18 @@ export function TokenApplicationCard({
           ) : null}
           <div className="token-application-card__metric token-application-card__metric--primary token-application-card__metric--top-left">
             <span>Price per unit</span>
-            <strong><Coins size={19} /> {moneyLabel(card.price, card.currency)}</strong>
+            <strong>
+              <CurrencyAmount
+                symbol={paymentSymbol}
+                name={paymentToken.name}
+                imageUrl={paymentToken.imageUrl}
+                iconSize="sm"
+                useBuiltInIcon={false}
+                className="token-application-card__price"
+              >
+                <TokenPriceValue value={card.price} />
+              </CurrencyAmount>
+            </strong>
           </div>
           <div className="token-application-card__metric token-application-card__metric--primary token-application-card__metric--top-right">
             <span>{maxBalanceMetric.label}</span>

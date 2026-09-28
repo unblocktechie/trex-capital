@@ -9,6 +9,7 @@ const moduleUrl = (code) => 'data:text/javascript,' + encodeURIComponent(code);
 const fixtures = {
   '@/store/auth.store': 'export const useAuthStore=select=>select({user:globalThis.__deploymentTest.user});',
   '@/store/tokenIssuance.store': 'export const useTokenIssuanceStore=select=>select(globalThis.__deploymentTest.store);',
+  '@/store/ui.store': 'export const useUiStore=select=>select({walletRequiredChainId:null,setWalletRequiredChainId:()=>{}});',
   '@/hooks/useMyToken': 'export const myTokenQueryKey=key=>["tokens","me",key]; export const useMyToken=()=>globalThis.__deploymentTest.tokenRecord;',
   '@/hooks/useTokenIssuanceBootstrap': 'export const useTokenIssuanceBootstrap=()=>({isLoading:false});',
   '@/hooks/useOrganization': 'export const useOrganization=()=>({organization:globalThis.__deploymentTest.organization,isLoading:false});',

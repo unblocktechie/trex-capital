@@ -18,6 +18,7 @@ import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { investmentApi } from '@/api/investments';
 import { CurrencyAmount } from '@/components/common/CurrencyAmount';
+import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import {
   InvestorTokenActionHeader,
   InvestorTokenIdentityCard,
@@ -46,6 +47,7 @@ import {
   submitInvestorTokenTransfer,
 } from '@/services/investor/investorTokenTransferTransaction.service';
 import { transactionExplorerName, transactionExplorerUrl } from '@/utils/blockExplorer';
+import { formatDecimalForDisplay, multiplyDecimalStrings } from '@/utils/currency';
 import { getErrorMessage } from '@/utils/error';
 import { getInvestmentActionContext } from '@/utils/investmentPurchase';
 import { resolveCurrentTokenPriceExact } from '@/utils/tokenPrice';
@@ -443,12 +445,12 @@ export default function SendTokenPage({
     ))
     || resolveCurrentTokenPriceExact(token || {}),
   );
-  const transferPriceNumber = Number(transferPriceExact);
-  const estimatedTransferValue = Number.isFinite(transferPriceNumber)
-    && transferPriceNumber > 0
-    && Number(normalizedAmount) > 0
-    ? Number(normalizedAmount) * transferPriceNumber
-    : null;
+  const estimatedTransferValueExact = isPositiveDecimal(transferPriceExact)
+    && isPositiveDecimal(normalizedAmount)
+    ? multiplyDecimalStrings(normalizedAmount, transferPriceExact)
+    : '';
+  const estimatedTransferValueDisplay = formatDecimalForDisplay(estimatedTransferValueExact);
+  const settlementSymbol = String(token?.currency || '').trim().toUpperCase();
   const serverStatus = normalizeStatus(transferRecord?.status);
   const preparedTransactionRequest = null;
   const knownHash = txHashOf(transferRecord) || txHash;
@@ -1125,16 +1127,22 @@ export default function SendTokenPage({
               <span>{activeTransferUid ? 'Price used' : 'Current price per unit'}</span>
               <strong>
                 {transferPriceExact ? (
-                  <CurrencyAmount symbol={token.currency || '—'}>{formatExactAmount(transferPriceExact)}</CurrencyAmount>
+                  <CurrencyAmount symbol={settlementSymbol}>
+                    <TokenPriceValue value={transferPriceExact} />
+                  </CurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
             <div className="investor-token-order-row investor-token-order-row--primary">
               <span>Estimated value</span>
               <strong>
-                {estimatedTransferValue === null ? '—' : (
-                  <CurrencyAmount symbol={token.currency || '—'}>
-                    {estimatedTransferValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {!estimatedTransferValueExact ? '—' : (
+                  <CurrencyAmount
+                    symbol={settlementSymbol}
+                    title={estimatedTransferValueDisplay.isAbbreviated ? `${estimatedTransferValueDisplay.exact} ${settlementSymbol}` : undefined}
+                    ariaLabel={estimatedTransferValueDisplay.isAbbreviated ? `${estimatedTransferValueDisplay.exact} ${settlementSymbol}` : undefined}
+                  >
+                    {estimatedTransferValueDisplay.display}
                   </CurrencyAmount>
                 )}
               </strong>

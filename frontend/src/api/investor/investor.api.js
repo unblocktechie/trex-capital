@@ -59,11 +59,11 @@ export const investorApi = Object.freeze({
       skipGlobalLoader: true,
     }),
 
-  submit: ({ walletAddress }) =>
+  submit: ({ walletAddress, chainUid }) =>
     apiClient
       .post(
         INVESTOR_ENDPOINTS.submit,
-        { walletAddress },
+        { walletAddress, chainUid },
         { skipGlobalLoader: true },
       )
       .then(unwrap),

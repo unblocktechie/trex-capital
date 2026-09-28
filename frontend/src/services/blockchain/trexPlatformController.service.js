@@ -10,8 +10,8 @@ import {
 import controllerAbi from '@/abi/TREXPlatformController.json';
 import { requirePaymentToken } from '@/api/tokens/paymentTokens.api';
 import { parseExactUnits } from '@/utils/paymentAmounts';
-import { env } from '@/config/env';
 import { web3Config } from '@/config/web3';
+import { formatNativeWalletBalance } from '@/utils/wallet';
 
 const MAX_UINT256 = (1n << 256n) - 1n;
 // The app always grants MAX_UINT256 when the investor explicitly enables payment token
@@ -156,6 +156,8 @@ const ERC20_PAYMENT_ABI = [
 ];
 
 const clean = (value) => String(value ?? '').trim();
+const requiredConfirmationsFor = (chainId) =>
+  web3Config.getChainRecordById(chainId)?.requiredConfirmations || 1;
 
 const walletErrorCode = (error) =>
   error?.code
@@ -200,11 +202,13 @@ const chainFor = (value) => {
 
 const publicClientFor = (chainId) => {
   const chain = chainFor(chainId);
-  return createPublicClient({ chain, transport: http(env.web3.rpcUrl) });
+  const rpcUrl = web3Config.getChainRecordById(chain.id)?.publicRpcUrl;
+  if (!rpcUrl) throw new Error('The public RPC URL for this network is unavailable.');
+  return createPublicClient({ chain, transport: http(rpcUrl) });
 };
 
-export const platformControllerAddress = () => requiredAddress(
-  env.trex.platformController,
+export const platformControllerAddress = (chainId = web3Config.requiredChain.id) => requiredAddress(
+  web3Config.getChainRecordById(chainId)?.platformControllerAddress,
   'Platform Controller',
 );
 
@@ -295,7 +299,7 @@ const paymentTokenMetadata = async (publicClient, { controllerAddress, paymentTo
 
   // Transaction-facing token/application responses should carry the controller,
   // but older records can legitimately be missing it. Recover deterministically
-  // from the authoritative payment-token catalogue first, then from the platform
+  // from the authoritative selected-chain payment-token data first, then from the platform
   // default used by current deployments. A valid asset-specific controller still
   // wins when it is present, so existing assets are not silently retargeted.
   const savedController = isAddress(clean(controllerAddress), { strict: false })
@@ -304,9 +308,7 @@ const paymentTokenMetadata = async (publicClient, { controllerAddress, paymentTo
   const catalogueController = isAddress(clean(item.controllerAddress), { strict: false })
     ? getAddress(clean(item.controllerAddress).toLowerCase())
     : '';
-  const configuredController = isAddress(clean(env.trex.platformController), { strict: false })
-    ? getAddress(clean(env.trex.platformController).toLowerCase())
-    : '';
+  const configuredController = optionalAddress(web3Config.getChainRecordById(chainId)?.platformControllerAddress);
   const resolvedController = savedController || catalogueController || configuredController;
 
   const config = await controllerMetadata(publicClient, resolvedController, item.contractAddress, action);
@@ -369,7 +371,7 @@ const priceControllerMetadata = async (publicClient, {
   }
 
   const controller = requiredAddress(
-    resolvedController || optionalAddress(env.trex.platformController),
+    resolvedController || optionalAddress(web3Config.getChainRecordById(chainId)?.platformControllerAddress),
     'Asset Platform Controller',
   );
 
@@ -466,6 +468,40 @@ const readLatestPlatformTokenPriceRaw = async ({
     }
   }
   throw lastError;
+};
+
+const waitForExpectedPlatformTokenPriceRaw = async ({
+  publicClient,
+  controller,
+  abi,
+  token,
+  expectedRaw,
+  attempts = 8,
+}) => {
+  let lastError = null;
+  let lastObservedRaw = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      lastObservedRaw = await readPlatformTokenPriceRaw({
+        publicClient,
+        controller,
+        abi,
+        token,
+      });
+      if (lastObservedRaw === expectedRaw) {
+        return { matched: true, priceRaw: lastObservedRaw, error: null };
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < attempts - 1) {
+      await sleep(Math.min(1_800, 600 * (attempt + 1)));
+    }
+  }
+
+  return { matched: false, priceRaw: lastObservedRaw, error: lastError };
 };
 
 const normalizeDecimalPrice = (value) => {
@@ -713,7 +749,7 @@ const approveMaximumAllowance = async ({
     onStep?.({ stage: 'approval-reset-signature', message: 'Reset the existing allowance before granting a new payment permission.' });
     const reset = await publicClient.simulateContract({ account, address: paymentToken, abi: ERC20_PAYMENT_ABI, functionName: 'approve', args: [controller, 0n] });
     const resetHash = await walletClient.writeContract(reset.request);
-    const resetReceipt = await publicClient.waitForTransactionReceipt({ hash: resetHash, confirmations: 1 });
+    const resetReceipt = await publicClient.waitForTransactionReceipt({ hash: resetHash, confirmations: requiredConfirmationsFor(publicClient.chain?.id) });
     if (resetReceipt.status !== 'success') throw new Error('The previous allowance could not be reset. No payment was submitted.');
   }
   onStep?.({ stage: 'approval-signature', message: 'Approve payment token in your wallet.' });
@@ -728,7 +764,7 @@ const approveMaximumAllowance = async ({
   onStep?.({ stage: 'approval-confirming', txHash: approvalTxHash, message: 'Payment approval submitted. Waiting for confirmation.' });
   const receipt = await publicClient.waitForTransactionReceipt({
     hash: approvalTxHash,
-    confirmations: 1,
+    confirmations: requiredConfirmationsFor(publicClient.chain?.id),
   });
   if (receipt.status !== 'success') {
     const error = new Error('The payment permission was not confirmed. No investment or redemption was submitted.');
@@ -838,7 +874,7 @@ export async function submitPlatformPurchase({
       walletAddress: investor,
       networkName: quote.chain.name,
       nativeSymbol,
-      nativeBalanceLabel: `${formatUnits(nativeBalance, quote.chain.nativeCurrency.decimals)} ${nativeSymbol}`,
+      nativeBalanceLabel: formatNativeWalletBalance(nativeBalance, nativeSymbol),
     };
     throw error;
   }
@@ -889,7 +925,7 @@ export async function waitForPlatformTransactionReceipt({ txHash, chainId, timeo
   try {
     const receipt = await publicClientFor(chainId).waitForTransactionReceipt({
       hash,
-      confirmations: 1,
+      confirmations: requiredConfirmationsFor(chainId),
       timeout,
     });
     if (receipt.status !== 'success') {
@@ -1032,7 +1068,7 @@ export async function submitPlatformRedemption({
       walletAddress: funding.issuer,
       networkName: funding.chain.name,
       nativeSymbol,
-      nativeBalanceLabel: `${formatUnits(nativeBalance, funding.chain.nativeCurrency.decimals)} ${nativeSymbol}`,
+      nativeBalanceLabel: formatNativeWalletBalance(nativeBalance, nativeSymbol),
     };
     throw error;
   }
@@ -1078,10 +1114,18 @@ export async function setPlatformTokenPrice({
   issuerWalletAddress,
   tokenAddress,
   currentTokenPrice,
-  chainId = web3Config.requiredChain.id,
+  chainId,
   onStep,
 }) {
-  const chain = chainFor(chainId);
+  const normalizedChainId = parseChainId(chainId);
+  if (!Number.isSafeInteger(normalizedChainId) || normalizedChainId <= 0) {
+    const error = new Error(
+      'The token network is missing. Refresh the token configuration before updating its price.',
+    );
+    error.code = 'TOKEN_PRICE_CHAIN_REQUIRED';
+    throw error;
+  }
+  const chain = chainFor(normalizedChainId);
   const token = requiredAddress(tokenAddress, 'Token contract');
   const issuer = requiredAddress(issuerWalletAddress, 'Organization wallet');
   const wallet = await activeWallet({
@@ -1127,23 +1171,18 @@ export async function setPlatformTokenPrice({
   });
   const txHash = await wallet.walletClient.writeContract(simulation.request);
   onStep?.({ stage: 'price-confirming', txHash, message: 'Price update submitted. Waiting for confirmation.' });
-  let receipt;
+  let receipt = null;
+  let receiptError = null;
   try {
     receipt = await wallet.publicClient.waitForTransactionReceipt({
       hash: txHash,
-      confirmations: 1,
+      confirmations: requiredConfirmationsFor(chain.id),
     });
   } catch (cause) {
-    const error = new Error(
-      'The price update was submitted, but confirmation is still pending. Do not submit another price change yet.',
-      { cause },
-    );
-    error.code = 'PRICE_CONFIRMATION_PENDING';
-    error.transactionHash = txHash;
-    error.transactionSubmitted = true;
-    throw error;
+    receiptError = cause;
   }
-  if (receipt.status !== 'success') {
+
+  if (receipt && receipt.status !== 'success') {
     const error = new Error('The current price update did not succeed. Your saved price was not changed.');
     error.code = 'PRICE_UPDATE_REVERTED';
     error.transactionHash = txHash;
@@ -1152,46 +1191,65 @@ export async function setPlatformTokenPrice({
     throw error;
   }
 
-  let confirmedRaw;
-  try {
-    // Read from the exact block that confirmed setPrice whenever the RPC supports
-    // it. This avoids a false mismatch when a load-balanced Sepolia RPC has one
-    // node a block behind immediately after waitForTransactionReceipt resolves.
-    if (typeof receipt.blockNumber === 'bigint') {
-      confirmedRaw = await readPlatformTokenPriceRaw({
-        publicClient: wallet.publicClient,
-        controller,
-        abi,
-        token,
-        blockNumber: receipt.blockNumber,
-      });
-    } else {
-      confirmedRaw = await readLatestPlatformTokenPriceRaw({
-        publicClient: wallet.publicClient,
-        controller,
-        abi,
-        token,
-      });
+  let confirmedRaw = null;
+  if (receipt) {
+    try {
+      // Read from the exact block that confirmed setPrice whenever the RPC supports
+      // it. This avoids a false mismatch when a load-balanced public RPC has one
+      // node a block behind immediately after waitForTransactionReceipt resolves.
+      if (typeof receipt.blockNumber === 'bigint') {
+        confirmedRaw = await readPlatformTokenPriceRaw({
+          publicClient: wallet.publicClient,
+          controller,
+          abi,
+          token,
+          blockNumber: receipt.blockNumber,
+        });
+      }
+    } catch {
+      // Fall through to the propagation-aware latest-state check below.
+      confirmedRaw = null;
     }
-  } catch {
-    // A receipt can arrive before every RPC replica can serve that block. Retry
-    // the ordinary latest-state read briefly before presenting a recovery state.
-    confirmedRaw = await readLatestPlatformTokenPriceRaw({
+  }
+
+  if (confirmedRaw !== priceRaw) {
+    onStep?.({
+      stage: 'price-reconciling',
+      txHash,
+      message:
+        'The network response is taking longer than expected. Checking the live token price automatically.',
+    });
+    const reconciled = await waitForExpectedPlatformTokenPriceRaw({
       publicClient: wallet.publicClient,
       controller,
       abi,
       token,
-      attempts: 4,
+      expectedRaw: priceRaw,
+      attempts: receipt ? 7 : 9,
     });
-  }
-  if (confirmedRaw !== priceRaw) {
-    const error = new Error('The price transaction was confirmed, but the controller returned a different price. No new transaction was sent.');
-    error.code = 'PRICE_VERIFICATION_MISMATCH';
-    error.transactionHash = txHash;
-    error.transactionSubmitted = true;
-    error.confirmedPriceRaw = confirmedRaw.toString();
-    error.expectedPriceRaw = priceRaw.toString();
-    throw error;
+    if (reconciled.matched) {
+      confirmedRaw = reconciled.priceRaw;
+    } else if (receiptError) {
+      const error = new Error(
+        'The price update was submitted, but confirmation is still pending. We checked the live price automatically; do not submit another price change yet.',
+        { cause: reconciled.error || receiptError },
+      );
+      error.code = 'PRICE_CONFIRMATION_PENDING';
+      error.transactionHash = txHash;
+      error.transactionSubmitted = true;
+      throw error;
+    } else {
+      const error = new Error(
+        'The price transaction was confirmed, but the controller has not reported the configured price after automatic verification. No new transaction was sent.',
+        { cause: reconciled.error || undefined },
+      );
+      error.code = 'PRICE_VERIFICATION_MISMATCH';
+      error.transactionHash = txHash;
+      error.transactionSubmitted = true;
+      error.confirmedPriceRaw = reconciled.priceRaw?.toString?.() || '';
+      error.expectedPriceRaw = priceRaw.toString();
+      throw error;
+    }
   }
 
   onStep?.({ stage: 'price-confirmed', txHash, message: 'Current price confirmed.' });
@@ -1203,6 +1261,7 @@ export async function setPlatformTokenPrice({
     priceRaw,
     currentTokenPrice: formatUnits(priceRaw, priceDecimals),
   };
+
 }
 
 export async function getPlatformTokenPrice({ tokenAddress, chainId = web3Config.requiredChain.id, controllerAddress, paymentTokenAddress }) {

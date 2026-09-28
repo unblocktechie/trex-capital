@@ -48,7 +48,7 @@ export default function LoginPage() {
       if (recoverableDeployment) {
         toast.success('Welcome back — resuming token creation', {
           description:
-            'Your blockchain transaction was recovered. Secure Sepolia verification will resume automatically; MetaMask will not open again.',
+            'Your blockchain transaction was recovered. Secure blockchain verification will resume automatically; MetaMask will not open again.',
         });
         navigate(ROUTES.tokenDeploying, { replace: true });
         return;

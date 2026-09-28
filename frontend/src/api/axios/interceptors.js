@@ -4,14 +4,19 @@ import { ROUTES } from '@/config/routes';
 import { authRedirectService } from '@/services/auth-redirect.service';
 import { tokenService } from '@/services/token.service';
 import { useAuthStore } from '@/store/auth.store';
+import { useNetworkStore } from '@/store/network.store';
 import { useUiStore } from '@/store/ui.store';
+import { web3Config } from '@/config/web3';
 import { queryClient } from '@/lib/queryClient';
 import { getRetryDelayMs, wait } from '@/utils/retry';
 
 let interceptorIds = null;
 let authNotFoundRedirectInProgress = false;
 
-const RATE_LIMIT_MAX_RETRIES = 3;
+// A 429 means the backend is already protecting itself. Retrying the same
+// browser burst automatically makes chain-switch storms worse, so requests do
+// not retry rate-limit responses unless a caller explicitly opts in.
+const RATE_LIMIT_MAX_RETRIES = 0;
 
 const retryRateLimitedRequest = async (error) => {
   const config = error?.config;
@@ -55,6 +60,41 @@ const ACCOUNT_LOOKUP_ENDPOINTS = [
 
 const isPublicAuthRequest = (url = '') =>
   PUBLIC_AUTH_ENDPOINTS.some((endpoint) => String(url).includes(endpoint));
+
+const requestPath = (url = '') => String(url || '').split('?')[0];
+
+const isInvestorChainScopedRequest = (url = '') => {
+  const path = requestPath(url);
+  return (
+    path === '/investors' ||
+    path.startsWith('/investors/') ||
+    path === '/investments' ||
+    path.startsWith('/investments/') ||
+    path === '/investor/claims' ||
+    path.startsWith('/investor/claims/')
+  );
+};
+
+const isIssuerChainScopedRequest = (url = '') => {
+  const path = requestPath(url);
+  return (
+    path === '/organizations' ||
+    path.startsWith('/organizations/') ||
+    path === '/tokens' ||
+    path.startsWith('/tokens/') ||
+    path === '/investments' ||
+    path.startsWith('/investments/') ||
+    path === '/issuer/claims' ||
+    path.startsWith('/issuer/claims/')
+  );
+};
+
+const shouldAttachSelectedChain = (role, url = '') => {
+  const normalizedRole = String(role || '').trim().toLowerCase();
+  if (normalizedRole === 'issuer') return isIssuerChainScopedRequest(url);
+  if (normalizedRole === 'investor') return isInvestorChainScopedRequest(url);
+  return false;
+};
 
 const getAccountLookupSource = (url = '') =>
   ACCOUNT_LOOKUP_ENDPOINTS.find(([endpoint]) => String(url).includes(endpoint))?.[1] || null;
@@ -107,6 +147,46 @@ const finishTrackedRequest = (config) => {
   if (config?.__tracksGlobalLoader) useUiStore.getState().endRequest();
 };
 
+const SELECTED_CHAIN_RESET_CODES = new Set(['INVALID_SELECTED_CHAIN', 'CHAIN_NOT_FOUND']);
+
+const responseErrorCode = (error) => String(
+  error?.response?.data?.code || error?.response?.data?.error?.code || '',
+).trim().toUpperCase();
+
+const recoverInvalidSelectedChain = (error) => {
+  const code = responseErrorCode(error);
+  if (!SELECTED_CHAIN_RESET_CODES.has(code)) return;
+
+  const user = useAuthStore.getState().user;
+  if (!user || !shouldAttachSelectedChain(user?.role || user?.roleName, error?.config?.url)) return;
+
+  const networkState = useNetworkStore.getState();
+  const cleared = networkState.clearActiveChainId(user);
+  if (!cleared) return;
+
+  queryClient.removeQueries({
+    predicate: (query) => {
+      const root = String(Array.isArray(query.queryKey) ? query.queryKey[0] || '' : '');
+      return [
+        'dashboard',
+        'investor',
+        'investments',
+        'marketplace',
+        'portfolio',
+        'transactions',
+        'payment-tokens',
+        'token-image',
+        'sidebar-action-indicators',
+        'organization',
+        'tokens',
+        'token-issuance',
+      ].includes(root);
+    },
+  });
+  queryClient.invalidateQueries({ queryKey: ['chains', 'public'] });
+  queryClient.invalidateQueries({ queryKey: ['chains', 'me'] });
+};
+
 export const setupAxiosInterceptors = () => {
   if (interceptorIds) return interceptorIds;
 
@@ -120,6 +200,17 @@ export const setupAxiosInterceptors = () => {
       const token = tokenService.getAccessToken();
       if (token && !isPublicAuthRequest(config.url)) {
         config.headers.Authorization = `${TOKEN_TYPES.bearer} ${token}`;
+
+        const user = useAuthStore.getState().user;
+        const normalizedRole = String(user?.role || user?.roleName || '').trim().toLowerCase();
+        if (normalizedRole === 'investor' || normalizedRole === 'issuer') {
+          const networkState = useNetworkStore.getState();
+          const selectedChainUid =
+            networkState.getActiveChainUid(user) ||
+            web3Config.getChainRecordById(networkState.getActiveChainId(user))?.chainUid ||
+            '';
+          if (selectedChainUid) config.headers['X-Chain-Uid'] = selectedChainUid;
+        }
       }
 
       if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
@@ -144,6 +235,8 @@ export const setupAxiosInterceptors = () => {
       finishTrackedRequest(error.config);
       const retriedResponse = await retryRateLimitedRequest(error);
       if (retriedResponse) return retriedResponse;
+
+      recoverInvalidSelectedChain(error);
 
       const status = error.response?.status;
       const hadSession =

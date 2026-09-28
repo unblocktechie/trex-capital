@@ -92,12 +92,13 @@ export const organizationApi = Object.freeze({
       skipGlobalLoader: true,
     }),
 
-  submit: ({ walletAddress }) =>
+  submit: ({ walletAddress, chainUid }) =>
     apiClient
       .post(
         ORGANIZATION_ENDPOINTS.submit,
         {
           walletAddress,
+          chainUid,
         },
         { skipGlobalLoader: true },
       )

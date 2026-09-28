@@ -166,7 +166,7 @@ class ClaimRecoveryService {
 
     let candidates;
     try {
-      candidates = await this.submissionRepository.findRecoveryCandidates(batchSize);
+      candidates = await this.submissionRepository.findRecoveryCandidates(batchSize, undefined, this.config.chainId);
     } catch (error) {
       stats.dbErrors += 1;
       logger.error('Claim recovery: could not load candidates', { error: { message: error.message, stack: error.stack } });

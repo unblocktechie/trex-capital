@@ -122,7 +122,7 @@ export function RegisteredInvestorWalletGate({ guard, actionLabel = 'continue' }
           <strong>Connect your registered wallet</strong>
           <p>Use the wallet registered for this investment ({shortenWalletAddress(registeredAddress, 6, 5)}) to {actionLabel}.</p>
           <div className="investor-token-wallet-gate__control">
-            <WalletControl prominent expanded context="investor" purpose="registered-action" />
+            <WalletControl prominent expanded context="investor" purpose="registered-action" requiredChainId={targetChainId} />
           </div>
         </div>
       </div>
@@ -137,7 +137,7 @@ export function RegisteredInvestorWalletGate({ guard, actionLabel = 'continue' }
           <strong>Use your registered investment wallet</strong>
           <p>The wallet currently connected is not the wallet approved for this investment ({shortenWalletAddress(registeredAddress, 6, 5)}). Choose the registered wallet below to continue.</p>
           <div className="investor-token-wallet-gate__control">
-            <WalletControl expanded context="investor" purpose="registered-action" />
+            <WalletControl expanded context="investor" purpose="registered-action" requiredChainId={targetChainId} />
           </div>
         </div>
       </div>
@@ -185,7 +185,7 @@ export function RegisteredInvestorWalletGate({ guard, actionLabel = 'continue' }
         <strong>Registered wallet ready</strong>
         <p>{shortenWalletAddress(wallet.address, 6, 5)} is connected on {targetNetworkLabel}.</p>
         <div className="investor-token-wallet-gate__control">
-          <WalletControl expanded context="investor" purpose="registered-action" />
+          <WalletControl expanded context="investor" purpose="registered-action" requiredChainId={targetChainId} />
         </div>
       </div>
     </div>
