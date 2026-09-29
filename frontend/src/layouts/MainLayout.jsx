@@ -44,7 +44,7 @@ export function MainLayout() {
   return (
     <div
       className={cn(
-        'app-shell',
+        'app-shell app-form-scope',
         collapsed && !onboardingOnly && 'app-shell--sidebar-collapsed',
         onboardingOnly && 'app-shell--onboarding',
       )}

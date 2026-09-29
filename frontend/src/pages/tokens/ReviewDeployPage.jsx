@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import { tokenApi } from '@/api/tokens';
 import { toGovernancePayload } from '@/api/tokens/token.mapper';
 import { DeploymentConfirmationModal } from '@/components/token-issuance/DeploymentConfirmationModal';
+import { NetworkIcon } from '@/components/common/NetworkIcon';
 import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import {
   AddressDisplay,
@@ -189,6 +190,9 @@ export default function ReviewDeployPage() {
     ? wallet.chain?.name ||
       `Unsupported network${wallet.chainId ? ` (Chain ID ${wallet.chainId})` : ''}`
     : 'No network connected';
+  const connectedNetworkRecord = wallet.isConnected
+    ? web3Config.getChainRecordById(wallet.chainId)
+    : web3Config.getChainRecordById(tokenInformation.chainId);
   useDocumentTitle('Review & Create');
 
   // Restore the read-only management-role values after a hard refresh or logout/login.
@@ -802,7 +806,12 @@ export default function ReviewDeployPage() {
                 )}
               >
                 <span className="review-deployment-network__icon" aria-hidden="true">
-                  <Network size={21} />
+                  <NetworkIcon
+                    chain={connectedNetworkRecord}
+                    chainId={wallet.isConnected ? wallet.chainId : tokenInformation.chainId}
+                    name={wallet.isConnected ? connectedNetworkLabel : networkLabel}
+                    size="md"
+                  />
                 </span>
                 <div className="review-deployment-network__content">
                   <small>Connected network</small>

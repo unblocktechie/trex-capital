@@ -66,12 +66,13 @@ export const tokenApi = Object.freeze({
       })
       .then(unwrap),
 
-  getImage: () =>
+  getImage: (signal) =>
     apiClient
       .get(TOKEN_ENDPOINTS.image, {
         responseType: 'blob',
         skipGlobalLoader: true,
         timeout: 60_000,
+        ...(signal ? { signal } : {}),
       })
       .then((response) => response.data),
 

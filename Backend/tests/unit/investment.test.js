@@ -75,7 +75,15 @@ const makeService = (over = {}) => {
       findSubmissionDocument: async (interestUid, documentUid) => state.submissionDocs
         .filter((d) => d.interestUid === interestUid && d.documentUid === documentUid)
         .sort((a, b) => b.submissionNumber - a.submissionNumber)[0] || null,
-      listInterestsByInvestor: async () => [{ interestUid: 'int-1', tokenUid: 'tok-1', status: 'submitIntrest', maxInvestors: 100, maxBalancePerInvestor: '5000' }],
+      listInterestsByInvestor: async () => [{
+        interestUid: 'int-1',
+        tokenUid: 'tok-1',
+        status: 'submitIntrest',
+        maxInvestors: 100,
+        maxBalancePerInvestor: '5000',
+        imageStorageKey: 'interest-token.webp',
+        imageMimeType: 'image/webp',
+      }],
       listInterestsByOrganization: async () => [{ interestUid: 'int-1', status: 'submitIntrest' }],
     },
     tokenRepository: { listClaimTopics: async () => state.requiredTopics },
@@ -170,11 +178,15 @@ test('token details include the treasury wallet address', async () => {
   assert.equal(result.treasuryWalletAddress, deployedToken.treasuryWalletAddress);
 });
 
-test('my-interests returns token cap fields', async () => {
+test('my-interests returns token cap and public image fields without exposing storage data', async () => {
   const { service } = makeService();
   const interests = await service.listMyInterests(investor, {});
   assert.equal(interests[0].maxInvestors, 100);
   assert.equal(interests[0].maxBalancePerInvestor, '5000');
+  assert.equal(interests[0].hasImage, true);
+  assert.equal(interests[0].imageUrl, '/api/v1/investments/tokens/tok-1/image');
+  assert.equal(interests[0].imageStorageKey, undefined);
+  assert.equal(interests[0].imageMimeType, undefined);
 });
 
 // -------------------------------------------------------- submit interest

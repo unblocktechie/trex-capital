@@ -34,6 +34,15 @@ const displayLabel = (options, value) =>
 const displayDate = (value) =>
   value ? formatDate(value, 'MMM D, YYYY') : 'Not provided';
 
+const getBackendErrorMessage = (error) => {
+  const payload = error?.response?.data;
+  const message =
+    payload?.message ||
+    (typeof payload?.error === 'string' ? payload.error : payload?.error?.message);
+
+  return typeof message === 'string' ? message.trim() : '';
+};
+
 function ReviewSection({ title, actionLabel = 'Edit', onEdit, children }) {
   return (
     <Card className="investor-review-card">
@@ -84,7 +93,6 @@ export default function ReviewSubmitStep() {
   useEffect(() => () => setWalletRequiredChainId(null), [setWalletRequiredChainId]);
   const [modalOpen, setModalOpen] = useState(state.currentStep === 5);
   const [loadingMessage, setLoadingMessage] = useState('');
-  const [submissionError, setSubmissionError] = useState('');
   const ready = useMemo(() => isInvestorOnboardingReady(state), [state]);
   const identity = state.identity;
   const documents = state.documents;
@@ -144,7 +152,6 @@ export default function ReviewSubmitStep() {
       toast.error('Switch the connected wallet to the supported network before continuing.');
       return;
     }
-    setSubmissionError('');
     setModalOpen(true);
     setStep(5);
   };
@@ -157,7 +164,6 @@ export default function ReviewSubmitStep() {
 
   const createProfileAndSubmit = async () => {
     if (submitting) return;
-    setSubmissionError('');
     setLoadingMessage('Creating your investor profile…');
     try {
       const { result } = await submitInvestor(activeWallet.address, selectedChain.chainUid);
@@ -166,7 +172,10 @@ export default function ReviewSubmitStep() {
       toast.success(reference ? `Investor profile ${reference} created successfully.` : 'Investor profile created successfully.');
       window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
     } catch (error) {
-      setSubmissionError(getErrorMessage(error, 'Unable to submit the investor onboarding profile.'));
+      const backendMessage = getBackendErrorMessage(error);
+      toast.error(
+        backendMessage || getErrorMessage(error, 'Unable to submit the investor onboarding profile.'),
+      );
     } finally {
       setLoadingMessage('');
     }
@@ -293,7 +302,6 @@ export default function ReviewSubmitStep() {
         onConfirm={createProfileAndSubmit}
         loading={submitting}
         loadingMessage={loadingMessage}
-        error={submissionError}
         wallet={activeWallet}
         ready={ready}
         profileCreated={false}

@@ -26,6 +26,18 @@ const presentToken = (row, countryRestrictions = [], paymentToken = null) => {
   };
 };
 
+// Investor interest rows include token summary data. Keep token-image output
+// consistent with marketplace/portfolio responses and do not expose storage keys.
+const presentInterest = (row) => {
+  if (!row) return row;
+  const { imageStorageKey, imageMimeType, ...rest } = row;
+  return {
+    ...rest,
+    hasImage: Boolean(imageStorageKey),
+    imageUrl: imageStorageKey ? IMAGE_URL(row.tokenUid) : null,
+  };
+};
+
 class InvestmentService {
   constructor({
     repository,
@@ -543,10 +555,11 @@ class InvestmentService {
     this.assertInvestor(user);
     const investor = await this.investorRepository.findByUserUid(user.userUid);
     if (!investor) return [];
-    return this.repository.listInterestsByInvestor(investor.investorUid, {
+    const interests = await this.repository.listInterestsByInvestor(investor.investorUid, {
       status: query.status,
       chainUid: selectedChain?.chainUid || null,
     });
+    return interests.map(presentInterest);
   }
 
   // ------------------------------------------------------------- issuer view

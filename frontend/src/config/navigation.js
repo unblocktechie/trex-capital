@@ -110,6 +110,14 @@ export const navigationGroups = Object.freeze([
         permission: PERMISSIONS.dashboardView,
         roles: [ROLES.investor],
       },
+      {
+        label: 'Wallet Management',
+        shortLabel: 'Wallet',
+        to: ROUTES.walletManagement,
+        icon: WalletCards,
+        permission: PERMISSIONS.dashboardView,
+        roles: [ROLES.issuer, ROLES.investor],
+      },
     ],
   },
 ]);
@@ -154,5 +162,6 @@ export const routeMeta = Object.freeze({
   [ROUTES.applications]: { title: 'My Applications', description: 'Track your investment applications' },
   [ROUTES.portfolio]: { title: 'Portfolio', description: 'See what you hold, its estimated value and your investment history' },
   [ROUTES.assetManagement]: { title: 'Manage Investments', description: 'Invest more, send, or redeem assets you are approved to hold' },
+  [ROUTES.walletManagement]: { title: 'Wallet Management', description: 'View wallet and token balances across supported networks' },
   [ROUTES.profile]: { title: 'Investor Profile', description: 'Your identity, investment information, documents, and registered wallet' },
 });

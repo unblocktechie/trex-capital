@@ -8,6 +8,7 @@ import '@/assets/styles/organization.css';
 import '@/assets/styles/token-issuance.css';
 import '@/assets/styles/investor.css';
 import '@/assets/styles/typography.css';
+import '@/assets/styles/form-system.css';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 

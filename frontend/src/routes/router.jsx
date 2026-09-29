@@ -40,6 +40,7 @@ const MarketplaceTokenDetailsPage = lazy(() => import('@/pages/investor-portal/M
 const MyApplicationsPage = lazy(() => import('@/pages/investor-portal/MyApplicationsPage'));
 const PortfolioPage = lazy(() => import('@/pages/investor-portal/PortfolioPage'));
 const AssetManagementPage = lazy(() => import('@/pages/investor-portal/AssetManagementPage'));
+const WalletManagementPage = lazy(() => import('@/pages/wallet/WalletManagementPage'));
 const ApplicationDetailsPage = lazy(() => import('@/pages/investor-portal/ApplicationDetailsPage'));
 const PurchaseTokenPage = lazy(() => import('@/pages/investor-portal/PurchaseTokenPage'));
 const SendTokenPage = lazy(() => import('@/pages/investor-portal/SendTokenPage'));
@@ -155,6 +156,7 @@ export const router = createBrowserRouter([
               { path: 'dashboard', element: withSuspense(<DashboardPage />) },
               { path: 'networks', element: withSuspense(<ChainAccessPage />) },
               { path: 'investors', element: withSuspense(<InvestorsRoutePage />) },
+              { path: 'wallet', element: withSuspense(<WalletManagementPage />) },
               {
                 element: <RoleMiddleware roles={[ROLES.issuer]} />,
                 children: [

@@ -1,8 +1,10 @@
-import { useState } from 'react';
-import { DollarSign } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Coins, DollarSign } from 'lucide-react';
+import ethCoinIcon from '@/assets/icons/eth-coin.svg';
 import usdcCoinIcon from '@/assets/icons/usdc-coin.svg';
 import usdtCoinIcon from '@/assets/icons/usdt-coin.svg';
 import { cn } from '@/utils/cn';
+import { resolveApiAssetUrl } from '@/utils/apiAssetUrl';
 
 const sizeClasses = Object.freeze({
   xs: 'token-icon--xs',
@@ -22,19 +24,26 @@ export function TokenIcon({
   fallback = 'token',
   useBuiltInImages = true,
 }) {
-  const [failedImageUrl, setFailedImageUrl] = useState('');
+  const [failedImageUrls, setFailedImageUrls] = useState([]);
   const normalized = normalizeSymbol(symbol);
   const label = name || (normalized === 'USDC' ? 'USD Coin' : normalized === 'USDT' ? 'Tether USDt' : normalized || 'Token');
   const fallbackText = (normalized || label)
     .replace(/[^A-Z0-9]/gi, '')
     .slice(0, normalized.length > 2 ? 3 : 2)
     .toUpperCase() || 'T';
+  const isEth = normalized === 'ETH';
   const isUsdc = normalized === 'USDC';
   const isUsdt = normalized === 'USDT';
-  const builtInImageUrl = useBuiltInImages ? (isUsdc ? usdcCoinIcon : isUsdt ? usdtCoinIcon : '') : '';
-  const resolvedImageUrl = imageUrl || builtInImageUrl;
-  const showImage = Boolean(resolvedImageUrl) && failedImageUrl !== resolvedImageUrl;
+  const builtInImageUrl = useBuiltInImages ? (isUsdc ? usdcCoinIcon : isUsdt ? usdtCoinIcon : isEth ? ethCoinIcon : '') : '';
+  const backendImageUrl = resolveApiAssetUrl(imageUrl);
+  const candidates = useMemo(
+    () => [...new Set([backendImageUrl, builtInImageUrl].filter(Boolean))],
+    [backendImageUrl, builtInImageUrl],
+  );
+  const resolvedImageUrl = candidates.find((candidate) => !failedImageUrls.includes(candidate)) || '';
+  const showImage = Boolean(resolvedImageUrl);
   const showCurrencyFallback = !showImage && fallback === 'currency';
+  const showIconFallback = !showImage && fallback === 'icon';
 
   return (
     <span
@@ -45,6 +54,7 @@ export function TokenIcon({
         isUsdt && 'token-icon--usdt',
         showImage && 'token-icon--image',
         showCurrencyFallback && 'token-icon--currency-fallback',
+        showIconFallback && 'token-icon--generic-fallback',
         className,
       )}
       role="img"
@@ -52,9 +62,15 @@ export function TokenIcon({
       title={`${label}${normalized && normalized !== label ? ` (${normalized})` : ''}`}
     >
       {showImage ? (
-        <img src={resolvedImageUrl} alt="" onError={() => setFailedImageUrl(resolvedImageUrl)} />
+        <img
+          src={resolvedImageUrl}
+          alt=""
+          onError={() => setFailedImageUrls((current) => current.includes(resolvedImageUrl) ? current : [...current, resolvedImageUrl])}
+        />
       ) : showCurrencyFallback ? (
         <DollarSign aria-hidden="true" />
+      ) : showIconFallback ? (
+        <Coins aria-hidden="true" />
       ) : (
         <span aria-hidden="true">{fallbackText}</span>
       )}

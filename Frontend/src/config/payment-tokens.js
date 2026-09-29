@@ -52,7 +52,16 @@ export const normalizePaymentTokens = (payload) => {
         || item.paymentTokenLogoUrl
         || item.tokenImageUrl
         || item.logoUrl
-        || item.iconUrl,
+        || item.iconUrl
+        || item.logo?.url
+        || item.logo?.imageUrl
+        || item.icon?.url
+        || item.icon?.imageUrl
+        || item.metadata?.imageUrl
+        || item.metadata?.logoUrl
+        || item.metadata?.iconUrl
+        || item.metadata?.logo?.url
+        || item.metadata?.icon?.url,
     );
     const supportedActions = (Array.isArray(item.supportedActions) ? item.supportedActions : [])
       .map((action) => String(action).toUpperCase());

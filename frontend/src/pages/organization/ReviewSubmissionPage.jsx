@@ -43,6 +43,15 @@ const EditButton = ({ onClick, label }) => (
   </Button>
 );
 
+const getBackendErrorMessage = (error) => {
+  const payload = error?.response?.data;
+  const message =
+    payload?.message ||
+    (typeof payload?.error === 'string' ? payload.error : payload?.error?.message);
+
+  return typeof message === 'string' ? message.trim() : '';
+};
+
 export default function ReviewSubmissionPage() {
   useDocumentTitle('Final Review & Submission');
   const navigate = useNavigate();
@@ -148,7 +157,10 @@ export default function ReviewSubmissionPage() {
       });
       navigate(ROUTES.organizationPending, { replace: true });
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to submit the organization application.'));
+      const backendMessage = getBackendErrorMessage(error);
+      toast.error(
+        backendMessage || getErrorMessage(error, 'Unable to submit the organization application.'),
+      );
     } finally {
       setSubmitting(false);
     }
