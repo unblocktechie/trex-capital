@@ -15,7 +15,7 @@ import { formatUnits, parseUnits } from 'viem';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { investmentApi } from '@/api/investments';
-import { CurrencyAmount } from '@/components/common/CurrencyAmount';
+import { PaymentCurrencyAmount } from '@/components/common/PaymentCurrencyAmount';
 import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import {
   InvestorTokenActionHeader,
@@ -574,8 +574,16 @@ export default function RedeemTokenPage({
       : '';
   const estimatedValueDisplay = formatDecimalForDisplay(estimatedValueExact);
   const settlementSymbol = String(
-    redemptionFunding?.paymentTokenSymbol || token?.currency || '',
+    redemptionFunding?.paymentTokenSymbol || paymentContext.paymentTokenSymbol || token?.currency || '',
   ).trim().toUpperCase();
+  const settlementPaymentTokenAddress = clean(
+    redemptionFunding?.paymentToken
+    || redemptionFunding?.paymentTokenAddress
+    || redemption?.paymentTokenAddress
+    || paymentContext.paymentTokenAddress,
+  );
+  const settlementChainId = preparedChainId || context.chainId || token?.chainId || application?.chainId;
+  const settlementChainUid = token?.chainUid || application?.chainUid || '';
 
   const canStartOrAuthorize = Boolean(
     walletGuard.ready
@@ -1348,13 +1356,16 @@ export default function RedeemTokenPage({
               <span>Estimated payment token you will receive</span>
               <strong>
                 {estimatedValueExact ? (
-                  <CurrencyAmount
-                    symbol={settlementSymbol}
+                  <PaymentCurrencyAmount
+                    paymentTokenAddress={settlementPaymentTokenAddress}
+                    paymentTokenSymbol={settlementSymbol}
+                    chainUid={settlementChainUid}
+                    chainId={settlementChainId}
                     title={estimatedValueDisplay.isAbbreviated ? `${estimatedValueDisplay.exact} ${settlementSymbol}` : undefined}
                     ariaLabel={estimatedValueDisplay.isAbbreviated ? `${estimatedValueDisplay.exact} ${settlementSymbol}` : undefined}
                   >
                     {estimatedValueDisplay.display}
-                  </CurrencyAmount>
+                  </PaymentCurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
@@ -1396,9 +1407,14 @@ export default function RedeemTokenPage({
               <span>{activeRedemption ? 'Price used' : 'Current price per unit'}</span>
               <strong>
                 {tokenPriceExact ? (
-                  <CurrencyAmount symbol={settlementSymbol}>
+                  <PaymentCurrencyAmount
+                    paymentTokenAddress={settlementPaymentTokenAddress}
+                    paymentTokenSymbol={settlementSymbol}
+                    chainUid={settlementChainUid}
+                    chainId={settlementChainId}
+                  >
                     <TokenPriceValue value={tokenPriceExact} />
-                  </CurrencyAmount>
+                  </PaymentCurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
@@ -1407,13 +1423,16 @@ export default function RedeemTokenPage({
               <span>Estimated payment token you receive</span>
               <strong>
                 {estimatedValueExact ? (
-                  <CurrencyAmount
-                    symbol={settlementSymbol}
+                  <PaymentCurrencyAmount
+                    paymentTokenAddress={settlementPaymentTokenAddress}
+                    paymentTokenSymbol={settlementSymbol}
+                    chainUid={settlementChainUid}
+                    chainId={settlementChainId}
                     title={estimatedValueDisplay.isAbbreviated ? `${estimatedValueDisplay.exact} ${settlementSymbol}` : undefined}
                     ariaLabel={estimatedValueDisplay.isAbbreviated ? `${estimatedValueDisplay.exact} ${settlementSymbol}` : undefined}
                   >
                     {estimatedValueDisplay.display}
-                  </CurrencyAmount>
+                  </PaymentCurrencyAmount>
                 ) : '—'}
               </strong>
             </div>

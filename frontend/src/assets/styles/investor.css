@@ -18004,12 +18004,11 @@ button.investor-dashboard-live__metric:focus-visible,
 }
 
 .investor-portfolio-summary__card small {
-  overflow: hidden;
   color: var(--text-muted);
   font-size: 0.68rem;
   line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .investor-portfolio-price-note {
@@ -20861,69 +20860,6 @@ button.investor-dashboard-live__metric:focus-visible,
 }
 
 
-/* Portfolio money summaries: keep exact financial precision available without
- * allowing long decimal values to break compact cards on smaller screens. */
-.investor-portfolio-summary__precise-amount[data-tooltip] {
-  position: relative;
-  overflow: visible;
-  outline: none;
-}
-
-.investor-portfolio-summary__precise-amount > .currency-amount {
-  overflow: hidden;
-}
-
-.investor-portfolio-summary__precise-amount .currency-amount__value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.investor-portfolio-summary__precise-amount[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  z-index: 70;
-  top: calc(100% + 8px);
-  left: 0;
-  width: max-content;
-  max-width: min(360px, calc(100vw - 40px));
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface);
-  padding: 8px 10px;
-  box-shadow: 0 12px 30px rgba(22, 28, 45, 0.16);
-  color: var(--text-soft);
-  font-family: var(--font-body);
-  font-size: 0.73rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.4;
-  text-align: left;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-3px);
-  transition: opacity var(--transition), transform var(--transition);
-}
-
-.investor-portfolio-summary__precise-amount[data-tooltip]:hover::after,
-.investor-portfolio-summary__precise-amount[data-tooltip]:focus-visible::after {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.investor-portfolio-summary__precise-amount[data-tooltip]:focus-visible {
-  border-radius: 4px;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-500) 24%, transparent);
-}
-
-@media (max-width: 640px) {
-  .investor-portfolio-summary__precise-amount[data-tooltip]::after {
-    width: min(100%, 320px);
-    max-width: calc(100vw - 56px);
-  }
-}
-
 /* Marketplace settlement currency comes from the selected-chain payment-token
    catalogue. Keep the icon/value/symbol row stable on narrow cards and phones. */
 .token-application-card__price.currency-amount {
@@ -20953,5 +20889,82 @@ button.investor-dashboard-live__metric:focus-visible,
     width: 20px;
     height: 20px;
     flex-basis: 20px;
+  }
+}
+
+/* Portfolio six-decimal precision display. The exact-value tooltip is portaled,
+ * so these compact values can stay clipped to their card/cell without clipping
+ * the tooltip itself. */
+.investor-portfolio-precision-trigger {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.investor-portfolio-precision-trigger > .currency-amount {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.investor-portfolio-precision-trigger .currency-amount__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Investor token actions live beside the persistent navigation. Respond to the
+ * actual app-main width (not only the browser viewport) so Invest/Send/Redeem
+ * remain stable on laptop and docked-devtools layouts. */
+.investor-token-action-page .investor-token-order-row > span,
+.investor-token-action-page .investor-token-action-calculation > span {
+  min-width: 0;
+  flex: 1 1 52%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.investor-token-action-page .investor-token-order-row > strong,
+.investor-token-action-page .investor-token-action-calculation > strong {
+  min-width: 0;
+  max-width: 48%;
+  flex: 0 1 48%;
+  overflow-wrap: anywhere;
+}
+
+.investor-token-action-page .investor-token-order-row > strong > .currency-amount,
+.investor-token-action-page .investor-token-action-calculation > strong > .currency-amount {
+  max-width: 100%;
+}
+
+@container app-main (max-width: 720px) {
+  .investor-token-action-page .investor-token-action-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .investor-token-action-page .investor-token-action-aside {
+    position: static;
+    top: auto;
+  }
+}
+
+@container app-main (max-width: 440px) {
+  .investor-token-action-page .investor-token-order-row,
+  .investor-token-action-page .investor-token-action-calculation {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .investor-token-action-page .investor-token-order-row > span,
+  .investor-token-action-page .investor-token-order-row > strong,
+  .investor-token-action-page .investor-token-action-calculation > span,
+  .investor-token-action-page .investor-token-action-calculation > strong {
+    width: 100%;
+    max-width: 100%;
+    flex-basis: auto;
+    text-align: left;
   }
 }

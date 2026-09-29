@@ -9,7 +9,6 @@ import { routeMeta } from '@/config/navigation';
 import { ROLES } from '@/config/permissions';
 import { ROUTES } from '@/config/routes';
 import { useAuth } from '@/hooks/useAuth';
-import { useAppNetwork } from '@/hooks/useAppNetwork';
 import { useUiStore } from '@/store/ui.store';
 
 const formatRole = (role) => {
@@ -19,19 +18,19 @@ const formatRole = (role) => {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 };
 
-export function Header({ onboardingOnly = false }) {
+export function Header({ onboardingOnly = false, network: appNetwork }) {
   const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
   const toggleSidebarCollapsed = useUiStore((state) => state.toggleSidebarCollapsed);
   const walletRequiredChainId = useUiStore((state) => state.walletRequiredChainId);
-  const appNetwork = useAppNetwork({ pathname: location.pathname });
-  const effectiveWalletChainId = walletRequiredChainId || appNetwork.activeChainId;
+  const effectiveWalletChainId = walletRequiredChainId || appNetwork?.activeChainId;
   const isNetworkAwareUser = user?.role === ROLES.issuer || user?.role === ROLES.investor;
   const isInvestorOnboardingRoute =
     user?.role === ROLES.investor && location.pathname === ROUTES.investors;
   const showNetworkSwitcher =
+    Boolean(appNetwork) &&
     isNetworkAwareUser &&
     location.pathname !== ROUTES.organizationReview &&
     !isInvestorOnboardingRoute;

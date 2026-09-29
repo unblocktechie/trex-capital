@@ -201,17 +201,22 @@ function BalanceStatus({ asset }) {
 export default function WalletManagementPage() {
   useDocumentTitle('Wallet Management');
   const navigate = useNavigate(); const { user } = useAuth(); const wallet = useWalletConnection(); const isIssuer = user?.role === ROLES.issuer; const tokenRecord = useMyToken({ enabled: isIssuer });
-  const [search, setSearch] = useState(''); const [hideZeroBalances, setHideZeroBalances] = useState(false); const [manualRefreshing, setManualRefreshing] = useState(false); const [bridgeOpen, setBridgeOpen] = useState(false); const [bridgeRouteId, setBridgeRouteId] = useState('');
-  const [selectedChainId, setSelectedChainId] = useState(() => web3Config.getChainById(wallet.chainId)?.id || web3Config.requiredChain?.id || web3Config.supportedChains[0]?.id); const [chainMenuOpen, setChainMenuOpen] = useState(false); const chainSelectorRef = useRef(null);
-  const selectedChain = web3Config.getChainById(selectedChainId) || web3Config.requiredChain || web3Config.supportedChains[0];
-  const selectedRecord = web3Config.getChainRecordById(selectedChain?.id);
-  const chainConfigQuery = useChainConfig(selectedRecord?.chainUid);
-  const selectedChainArtwork = useMemo(() => ({
+  const [search, setSearch] = useState(''); const [hideZeroBalances, setHideZeroBalances] = useState(false); const [manualRefreshing, setManualRefreshing] = useState(false); const [bridgeOpen, setBridgeOpen] = useState(false); const [bridgeRouteId, setBridgeRouteId] = useState(''); const [bridgeRoutesSnapshot, setBridgeRoutesSnapshot] = useState([]);
+  const [selectedChainId, setSelectedChainId] = useState(() => web3Config.getWalletChainById(wallet.chainId)?.id || web3Config.requiredChain?.id || web3Config.walletChains[0]?.id); const [chainMenuOpen, setChainMenuOpen] = useState(false); const chainSelectorRef = useRef(null);
+  const selectedChain = web3Config.getWalletChainById(selectedChainId) || web3Config.requiredChain || web3Config.walletChains[0];
+  const selectedPlatformRecord = web3Config.getChainRecordById(selectedChain?.id);
+  const selectedBridgeRecord = web3Config.getBridgeChainRecordById(selectedChain?.id);
+  const selectedRecord = selectedPlatformRecord || selectedBridgeRecord;
+  const chainConfigQuery = useChainConfig(selectedPlatformRecord?.chainUid);
+  const selectedChainConfig = useMemo(() => ({
     ...(selectedRecord || {}),
-    ...(chainConfigQuery.data || {}),
-    imageUrl: clean(chainConfigQuery.data?.imageUrl) || clean(selectedRecord?.imageUrl),
-    nativeCurrencyImageUrl: clean(chainConfigQuery.data?.nativeCurrencyImageUrl) || clean(selectedRecord?.nativeCurrencyImageUrl),
-  }), [chainConfigQuery.data, selectedRecord]);
+    ...(selectedPlatformRecord ? chainConfigQuery.data || {} : selectedBridgeRecord || {}),
+  }), [chainConfigQuery.data, selectedBridgeRecord, selectedPlatformRecord, selectedRecord]);
+  const selectedChainArtwork = useMemo(() => ({
+    ...selectedChainConfig,
+    imageUrl: clean(selectedChainConfig?.imageUrl) || clean(selectedRecord?.imageUrl),
+    nativeCurrencyImageUrl: clean(selectedChainConfig?.nativeCurrencyImageUrl) || clean(selectedRecord?.nativeCurrencyImageUrl),
+  }), [selectedChainConfig, selectedRecord]);
 
   useEffect(() => {
     if (!chainMenuOpen) return undefined;
@@ -219,10 +224,10 @@ export default function WalletManagementPage() {
     document.addEventListener('pointerdown', pointer); document.addEventListener('keydown', key); return () => { document.removeEventListener('pointerdown', pointer); document.removeEventListener('keydown', key); };
   }, [chainMenuOpen]);
 
-  const configuredDefinitions = useMemo(() => (chainConfigQuery.data?.paymentTokens || [])
+  const configuredDefinitions = useMemo(() => (selectedChainConfig?.paymentTokens || [])
     .filter((item) => item.active !== false)
     .filter((item) => !(selectedChain?.nativeCurrency?.symbol?.toUpperCase() === 'USDC' && clean(item.symbol).toUpperCase() === 'USDC'))
-    .map((item) => ({ id: `${item.chainId}-${item.contractAddress}`, kind: 'network-token', name: item.name || item.symbol, symbol: item.symbol, tokenAddress: item.contractAddress, chainId: item.chainId, decimals: item.decimals, imageUrl: item.imageUrl || '', route: '' })), [chainConfigQuery.data?.paymentTokens, selectedChain?.nativeCurrency?.symbol]);
+    .map((item) => ({ id: `${item.chainId}-${item.contractAddress}`, kind: 'network-token', name: item.name || item.symbol, symbol: item.symbol, tokenAddress: item.contractAddress, chainId: item.chainId, decimals: item.decimals, imageUrl: item.imageUrl || '', route: '' })), [selectedChain?.nativeCurrency?.symbol, selectedChainConfig?.paymentTokens]);
 
   const nativeQuery = useQuery({ queryKey: ['wallet-management-native', wallet.address || 'no-wallet', selectedChain?.id], queryFn: () => readWalletNativeBalance({ walletAddress: wallet.address, chainId: selectedChain.id }), enabled: Boolean(selectedChain?.id && wallet.isConnected && isAddress(clean(wallet.address))), staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 });
   const configuredAssetsQuery = useQuery({ queryKey: ['wallet-management-payment-tokens', wallet.address || 'no-wallet', selectedChain?.id, configuredDefinitions.map((item) => item.tokenAddress).join(',')], queryFn: ({ signal }) => loadConfiguredAssets({ definitions: configuredDefinitions, walletAddress: wallet.address, signal }), enabled: Boolean(wallet.isConnected && isAddress(clean(wallet.address)) && configuredDefinitions.length), staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 });
@@ -239,13 +244,14 @@ export default function WalletManagementPage() {
   });
 
   const bridgeConfigsQuery = useQuery({
-    queryKey: ['wallet-management-bridge-configs', web3Config.chainRecords.filter((record) => getCircleBridgeChain(record.chainId)).map((record) => record.chainUid).join(',')],
+    queryKey: ['wallet-management-bridge-configs', [...web3Config.chainRecords, ...web3Config.bridgeChainRecords].filter((record) => getCircleBridgeChain(record.chainId)).map((record) => `${record.chainUid}:${record.chainId}`).join(',')],
     queryFn: async ({ signal }) => {
-      const records = web3Config.chainRecords.filter((record) => getCircleBridgeChain(record.chainId));
-      // Do not swallow an individual configuration failure here. React Query
-      // can then retry the bridge catalogue instead of caching a partial route
-      // set, which previously made the Bridge USDC action appear intermittently.
-      return Promise.all(records.map(async (record) => {
+      const platformRecords = web3Config.chainRecords.filter((record) => getCircleBridgeChain(record.chainId));
+      const bridgeOnlyRecords = web3Config.bridgeChainRecords.filter((record) => getCircleBridgeChain(record.chainId));
+      // Platform networks keep using authoritative backend chain configuration.
+      // Bridge-only Ethereum is appended from the frontend deployment profile so
+      // this independent feature does not require Ethereum in the backend catalogue.
+      const platformConfigs = await Promise.all(platformRecords.map(async (record) => {
         const config = await chainsApi.getConfig(record.chainUid, { signal });
         return {
           ...record,
@@ -254,6 +260,7 @@ export default function WalletManagementPage() {
           nativeCurrencyImageUrl: clean(config?.nativeCurrencyImageUrl) || clean(record.nativeCurrencyImageUrl) || clean(record.imageUrl),
         };
       }));
+      return [...platformConfigs, ...bridgeOnlyRecords];
     },
     staleTime: 60_000,
     refetchOnWindowFocus: true,
@@ -279,26 +286,41 @@ export default function WalletManagementPage() {
     return [...map.values()];
   }, [configuredAssetsQuery.data, nativeAsset, selectedRoleAssets]);
   const visibleAssets = useMemo(() => { const needle = search.trim().toLowerCase(); return allAssets.filter((asset) => (!needle || [asset.name, asset.symbol, asset.tokenAddress].filter(Boolean).some((value) => String(value).toLowerCase().includes(needle))) && (!hideZeroBalances || hasPositiveBalance(asset.balance))); }, [allAssets, hideZeroBalances, search]);
-  const loadingAssets = nativeQuery.isLoading || chainConfigQuery.isLoading || configuredAssetsQuery.isLoading || roleAssetsQuery.isLoading;
+  const loadingAssets = nativeQuery.isLoading || (Boolean(selectedPlatformRecord) && chainConfigQuery.isLoading) || configuredAssetsQuery.isLoading || roleAssetsQuery.isLoading;
   const refreshBusy = manualRefreshing || nativeQuery.isFetching || chainConfigQuery.isFetching || configuredAssetsQuery.isFetching || roleAssetsQuery.isFetching || bridgeConfigsQuery.isFetching;
   const positiveAssetCount = allAssets.filter((asset) => hasPositiveBalance(asset.balance)).length;
   const selectedUsdc = allAssets.find((asset) => clean(asset.symbol).toUpperCase() === 'USDC');
-  const activeNetworkRecord = web3Config.getChainRecordById(wallet.chainId);
-  const activeNetworkName = web3Config.getChainById(wallet.chainId)?.name || wallet.chain?.name || 'Unsupported network';
+  const activeNetworkRecord = web3Config.getWalletChainRecordById(wallet.chainId);
+  const activeNetworkName = web3Config.getWalletChainById(wallet.chainId)?.name || wallet.chain?.name || 'Unsupported network';
 
   const copyAddress = async (value, label) => { try { await navigator.clipboard.writeText(value); toast.success(`${label} copied`); } catch { toast.error(`Unable to copy ${label.toLowerCase()}`); } };
   const handleRefresh = async () => {
     if (manualRefreshing) return; setManualRefreshing(true);
-    const results = await Promise.allSettled([nativeQuery.refetch(), chainConfigQuery.refetch(), configuredAssetsQuery.refetch(), roleAssetsQuery.refetch(), bridgeConfigsQuery.refetch()]); setManualRefreshing(false);
+    const results = await Promise.allSettled([nativeQuery.refetch(), ...(selectedPlatformRecord ? [chainConfigQuery.refetch()] : []), configuredAssetsQuery.refetch(), roleAssetsQuery.refetch(), bridgeConfigsQuery.refetch()]); setManualRefreshing(false);
     if (results.every((result) => result.status === 'fulfilled')) toast.success('Wallet balances refreshed'); else toast.warning('Some balances could not be refreshed.');
   };
   const openBridge = () => {
     if (bridgeCatalogLoading) { toast.info('Bridge routes are still loading. Please try again in a moment.'); return; }
     if (bridgeIssue) { toast.error(bridgeIssue); return; }
     if (!outgoingBridgeRoutes.length) { toast.error(`No configured USDC bridge route starts from ${selectedChain.name}.`); return; }
+    // Freeze the currently valid route catalogue for the lifetime of this bridge.
+    // Window-focus refetches caused by wallet confirmations must not temporarily
+    // remove the modal while a multi-transaction bridge is in progress.
+    setBridgeRoutesSnapshot(bridgeRoutes);
     setBridgeRouteId(outgoingBridgeRoutes[0].id); setBridgeOpen(true);
   };
-  const handleBridgeCompleted = async () => { await Promise.allSettled([nativeQuery.refetch(), configuredAssetsQuery.refetch(), roleAssetsQuery.refetch()]); toast.success('Bridge completed', { description: 'Wallet balances are being refreshed.' }); };
+  const handleBridgeCompleted = ({ route, amount } = {}) => {
+    // A completed bridge is a terminal state inside the modal, not a reason to
+    // unmount it. Keep the success result visible until the user explicitly
+    // chooses Close, X, or View destination balance. This also keeps mainnet
+    // behavior aligned with testnet when the wallet has switched networks.
+    const amountLabel = clean(amount);
+    const destination = clean(route?.destination?.networkName);
+    toast.success('Bridge completed', {
+      description: `${amountLabel ? `${amountLabel} USDC` : 'USDC'}${destination ? ` bridged to ${destination}` : ' bridged successfully'}. Wallet balances are being refreshed.`,
+    });
+    void Promise.allSettled([nativeQuery.refetch(), configuredAssetsQuery.refetch(), roleAssetsQuery.refetch()]);
+  };
 
   return (
     <div className="page-stack wallet-management-page">
@@ -306,14 +328,14 @@ export default function WalletManagementPage() {
 
       <div className="wallet-management-overview">
         <Card className="wallet-management-account-card">
-          <div className="wallet-management-account-card__heading"><div><span className="eyebrow">Current wallet</span><h2>{isIssuer ? 'Organization wallet' : 'Investor wallet'}</h2></div><span className={`wallet-management-network${wallet.isSupportedChain ? ' is-ready' : ''}`}><NetworkIcon chain={activeNetworkRecord} chainId={wallet.chainId} name={activeNetworkName} size="xs" /><span>Active: {activeNetworkName}</span></span></div>
-          <div className="wallet-management-control-wrap"><WalletControl expanded context={isIssuer ? 'organization' : 'investor'} /></div>
+          <div className="wallet-management-account-card__heading"><div><span className="eyebrow">Current wallet</span><h2>{isIssuer ? 'Organization wallet' : 'Investor wallet'}</h2></div><span className={`wallet-management-network${wallet.isConfiguredWalletChain ? ' is-ready' : ''}`}><NetworkIcon chain={activeNetworkRecord} chainId={wallet.chainId} name={activeNetworkName} size="xs" /><span>Active: {activeNetworkName}</span></span></div>
+          <div className="wallet-management-control-wrap"><WalletControl expanded context={isIssuer ? 'organization' : 'investor'} allowConfiguredWalletChains /></div>
           {wallet.address ? <button type="button" className="wallet-management-address" onClick={() => copyAddress(wallet.address, 'Wallet address')}><span><small>Wallet address</small><strong>{wallet.address}</strong></span><Copy size={17} /></button> : <div className="wallet-management-account-warning"><AlertCircle size={17} /><span>Connect your registered wallet to load balances.</span></div>}
         </Card>
         <div className="wallet-management-metrics">
           <Card className="wallet-management-metric"><span className="wallet-management-metric__icon"><WalletCards size={20} /></span><span><small>Known assets</small><strong>{loadingAssets ? '—' : allAssets.length}</strong></span></Card>
           <Card className="wallet-management-metric"><span className="wallet-management-metric__icon"><CheckCircle2 size={20} /></span><span><small>Assets with balance</small><strong>{loadingAssets ? '—' : positiveAssetCount}</strong></span></Card>
-          <Card className="wallet-management-metric wallet-management-metric--usdc"><TokenIcon symbol="USDC" name="USD Coin" imageUrl={selectedUsdc?.imageUrl} size="md" /><span><small>Available USDC</small><strong>{selectedUsdc?.balance ? `${formatExactBalance(selectedUsdc.balance, balanceDigits(selectedUsdc))} USDC` : '—'}</strong></span></Card>
+          <Card className="wallet-management-metric wallet-management-metric--usdc"><TokenIcon symbol="USDC" name="USD Coin" imageUrl={selectedUsdc?.imageUrl} size="md" /><span><small>Available USDC</small><strong className="wallet-management-metric__value">{selectedUsdc?.balance ? <><span className="wallet-management-metric__amount">{formatExactBalance(selectedUsdc.balance, balanceDigits(selectedUsdc))}</span><span className="wallet-management-metric__unit">USDC</span></> : '—'}</strong></span></Card>
         </div>
       </div>
 
@@ -321,7 +343,7 @@ export default function WalletManagementPage() {
         <div className="wallet-assets-card__header wallet-assets-card__header--compact">
           <div className="wallet-assets-card__title-block"><h2>Token balances</h2><div className="wallet-assets-card__network-line"><span>Assets on</span><div className="wallet-management-chain-selector wallet-management-chain-selector--compact" ref={chainSelectorRef}>
             <button type="button" className="wallet-management-chain-selector__trigger" aria-haspopup="listbox" aria-expanded={chainMenuOpen} onClick={() => setChainMenuOpen((open) => !open)}><NetworkIcon chain={selectedChainArtwork} chainId={selectedChain?.id} name={selectedChain?.name} size="md" /><span className="wallet-management-chain-selector__copy"><strong>{selectedChain?.name}</strong></span><ChevronDown className={chainMenuOpen ? 'is-open' : ''} size={16} /></button>
-            {chainMenuOpen ? <div className="wallet-management-chain-selector__menu" role="listbox"><span className="wallet-management-chain-selector__menu-label">View balances on</span>{web3Config.supportedChains.map((chain) => { const selected = chain.id === selectedChain?.id; const chainRecord = web3Config.getChainRecordById(chain.id); return <button key={chain.id} type="button" role="option" aria-selected={selected} className={`wallet-management-chain-selector__option${selected ? ' is-selected' : ''}`} onClick={() => { setSelectedChainId(chain.id); setSearch(''); setHideZeroBalances(false); setChainMenuOpen(false); }}><NetworkIcon chain={chainRecord} chainId={chain.id} name={chain.name} size="sm" /><span className="wallet-management-chain-selector__option-copy"><strong>{chain.name}</strong><small>{chain.nativeCurrency.symbol} network</small></span><span className="wallet-management-chain-selector__option-status">{selected ? <Check size={15} /> : null}</span></button>; })}<div className="wallet-management-chain-selector__note"><ShieldCheck size={14} /><span>Balance viewing is read-only and does not switch your wallet network.</span></div></div> : null}
+            {chainMenuOpen ? <div className="wallet-management-chain-selector__menu" role="listbox"><span className="wallet-management-chain-selector__menu-label">View balances on</span>{web3Config.walletChains.map((chain) => { const selected = chain.id === selectedChain?.id; const chainRecord = web3Config.getWalletChainRecordById(chain.id); return <button key={chain.id} type="button" role="option" aria-selected={selected} className={`wallet-management-chain-selector__option${selected ? ' is-selected' : ''}`} onClick={() => { setSelectedChainId(chain.id); setSearch(''); setHideZeroBalances(false); setChainMenuOpen(false); }}><NetworkIcon chain={chainRecord} chainId={chain.id} name={chain.name} size="sm" /><span className="wallet-management-chain-selector__option-copy"><strong>{chain.name}</strong><small>{chain.nativeCurrency.symbol} network{chainRecord?.bridgeOnly ? ' · Bridge only' : ''}</small></span><span className="wallet-management-chain-selector__option-status">{selected ? <Check size={15} /> : null}</span></button>; })}<div className="wallet-management-chain-selector__note"><ShieldCheck size={14} /><span>Balance viewing is read-only. Bridge-only networks are available here without becoming platform investment networks.</span></div></div> : null}
           </div></div></div>
           <div className="wallet-assets-card__updated"><span>{refreshBusy ? 'Updating…' : loadingAssets ? 'Loading balances…' : 'Updated just now'}</span><button type="button" className="wallet-assets-refresh-button" onClick={handleRefresh} disabled={!wallet.isConnected || refreshBusy} aria-label="Refresh wallet balances"><RefreshCcw size={16} className={refreshBusy ? 'is-spinning' : ''} /></button></div>
         </div>
@@ -345,10 +367,10 @@ export default function WalletManagementPage() {
             </article>;
           }) : <div className="wallet-assets-empty"><WalletCards size={24} /><strong>No matching assets</strong><p>{hideZeroBalances ? 'No assets with a positive balance match this filter.' : 'No wallet assets match your search.'}</p></div>}
         </div>
-        <div className="wallet-assets-card__footer"><ShieldCheck size={16} /><span>Your balances are view-only. Payment tokens are based on the network you select, and available investment assets come from your account.</span></div>
+        <div className="wallet-assets-card__footer"><ShieldCheck size={16} /><span>Your balances are view-only. Platform assets still come from supported backend networks; Ethereum is added here only for Circle USDC bridge balances.</span></div>
       </Card>
 
-      <UsdcBridgeModal open={bridgeOpen && bridgeRoutes.length > 0} onClose={() => setBridgeOpen(false)} walletAddress={wallet.address} getProvider={() => wallet.connector?.getProvider?.()} switchWalletChain={async (chainId) => { if (Number(wallet.chainId) !== Number(chainId)) await wallet.switchChain(Number(chainId)); }} routes={bridgeRoutes} initialRouteId={bridgeRouteId} onBridgeCompleted={handleBridgeCompleted} onViewDestinationBalance={(chainId) => { setSelectedChainId(Number(chainId)); setSearch(''); setHideZeroBalances(false); }} />
+      <UsdcBridgeModal open={bridgeOpen} onClose={() => setBridgeOpen(false)} walletAddress={wallet.address} getProvider={() => wallet.connector?.getProvider?.()} switchWalletChain={async (chainId) => { if (Number(wallet.chainId) !== Number(chainId)) await wallet.switchChain(Number(chainId)); }} routes={bridgeRoutesSnapshot.length ? bridgeRoutesSnapshot : bridgeRoutes} initialRouteId={bridgeRouteId} onBridgeCompleted={handleBridgeCompleted} onViewDestinationBalance={(chainId) => { setSelectedChainId(Number(chainId)); setSearch(''); setHideZeroBalances(false); }} />
     </div>
   );
 }

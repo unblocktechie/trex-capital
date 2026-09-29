@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Building2, ChevronLeft, ChevronRight, UserRound, X } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { TrexLogo } from '@/components/branding/TrexLogo';
+import { appConfig } from '@/config/app.config';
 import { navigationGroups } from '@/config/navigation';
 import { ROLES } from '@/config/permissions';
 import { OrganizationStatusBadge } from '@/components/organization/OrganizationStatusBadge';
@@ -13,6 +14,7 @@ import { useSidebarActionIndicators } from '@/hooks/useSidebarActionIndicators';
 import { ORGANIZATION_STATUSES } from '@/services/organizationStorageService';
 import { ROUTES } from '@/config/routes';
 import { cn } from '@/utils/cn';
+import { getNetworkEnvironmentLabel } from '@/utils/networkEnvironment';
 
 const formatRole = (role) => {
   if (!role) return 'Issuer';
@@ -21,7 +23,7 @@ const formatRole = (role) => {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 };
 
-export function Sidebar() {
+export function Sidebar({ network }) {
   const { user } = useAuth();
   const { organization } = useOrganization();
   const tokenRecord = useMyToken({ enabled: user?.role === ROLES.issuer });
@@ -36,6 +38,10 @@ export function Sidebar() {
   const workspaceName = isIssuer
     ? user?.company || user?.name || 'Issuer account'
     : user?.name || `${roleLabel} account`;
+  const networkEnvironmentLabel = getNetworkEnvironmentLabel(
+    network?.activeChain,
+    appConfig.deploymentEnvironment,
+  );
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 900px)');
@@ -88,7 +94,7 @@ export function Sidebar() {
             <small>{roleLabel} workspace</small>
             <strong>{workspaceName}</strong>
           </span>
-          <span className="workspace-pill__network">Testnet</span>
+          <span className="workspace-pill__network">{networkEnvironmentLabel}</span>
         </div>
 
         <nav className="sidebar__nav" aria-label="Primary navigation">

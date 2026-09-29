@@ -73,8 +73,16 @@ for (const [name, entry] of Object.entries(networksJson)) {
 // Etherscan networks (sepolia, mainnet, ...) now only work in v2/string
 // form. Since the mode is global per hardhat run, decide it from whichever
 // network this invocation's --network flag targets.
+//
+// Hardhat loads this file twice per `hardhat run ... --network X`: once with
+// "--network X" in process.argv, and again when it executes the script, by
+// which point argv is just [node, scriptPath] but HARDHAT_NETWORK=X is set.
+// Both must resolve to the same network or the apiKey mode silently flips.
 const networkArgIndex = process.argv.indexOf('--network');
-const targetNetwork = process.env.NETWORK || (networkArgIndex !== -1 ? process.argv[networkArgIndex + 1] : undefined);
+const targetNetwork =
+  process.env.NETWORK ||
+  (networkArgIndex !== -1 ? process.argv[networkArgIndex + 1] : undefined) ||
+  process.env.HARDHAT_NETWORK;
 const targetUsesCustomExplorer = targetNetwork ? Boolean(networksJson[targetNetwork]?.explorerApiUrl) : customChains.length > 0;
 const etherscanApiKeyConfig: string | Record<string, string> = targetUsesCustomExplorer ? etherscanApiKey : process.env.ETHERSCAN_API_KEY || '';
 

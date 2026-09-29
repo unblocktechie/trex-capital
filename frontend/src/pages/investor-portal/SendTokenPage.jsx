@@ -1,3 +1,4 @@
+import { paymentContextOf } from '@/config/payment-tokens';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
@@ -17,7 +18,7 @@ import { isAddress, parseUnits } from 'viem';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { investmentApi } from '@/api/investments';
-import { CurrencyAmount } from '@/components/common/CurrencyAmount';
+import { PaymentCurrencyAmount } from '@/components/common/PaymentCurrencyAmount';
 import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import {
   InvestorTokenActionHeader,
@@ -450,7 +451,13 @@ export default function SendTokenPage({
     ? multiplyDecimalStrings(normalizedAmount, transferPriceExact)
     : '';
   const estimatedTransferValueDisplay = formatDecimalForDisplay(estimatedTransferValueExact);
-  const settlementSymbol = String(token?.currency || '').trim().toUpperCase();
+  const paymentContext = paymentContextOf(transferRecord, token, application);
+  const settlementSymbol = String(
+    paymentContext.paymentTokenSymbol || token?.currency || '',
+  ).trim().toUpperCase();
+  const settlementPaymentTokenAddress = paymentContext.paymentTokenAddress;
+  const settlementChainId = transferRecord?.chainId || context.chainId || token?.chainId || application?.chainId;
+  const settlementChainUid = token?.chainUid || application?.chainUid || '';
   const serverStatus = normalizeStatus(transferRecord?.status);
   const preparedTransactionRequest = null;
   const knownHash = txHashOf(transferRecord) || txHash;
@@ -1127,9 +1134,14 @@ export default function SendTokenPage({
               <span>{activeTransferUid ? 'Price used' : 'Current price per unit'}</span>
               <strong>
                 {transferPriceExact ? (
-                  <CurrencyAmount symbol={settlementSymbol}>
+                  <PaymentCurrencyAmount
+                    paymentTokenAddress={settlementPaymentTokenAddress}
+                    paymentTokenSymbol={settlementSymbol}
+                    chainUid={settlementChainUid}
+                    chainId={settlementChainId}
+                  >
                     <TokenPriceValue value={transferPriceExact} />
-                  </CurrencyAmount>
+                  </PaymentCurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
@@ -1137,13 +1149,16 @@ export default function SendTokenPage({
               <span>Estimated value</span>
               <strong>
                 {!estimatedTransferValueExact ? '—' : (
-                  <CurrencyAmount
-                    symbol={settlementSymbol}
+                  <PaymentCurrencyAmount
+                    paymentTokenAddress={settlementPaymentTokenAddress}
+                    paymentTokenSymbol={settlementSymbol}
+                    chainUid={settlementChainUid}
+                    chainId={settlementChainId}
                     title={estimatedTransferValueDisplay.isAbbreviated ? `${estimatedTransferValueDisplay.exact} ${settlementSymbol}` : undefined}
                     ariaLabel={estimatedTransferValueDisplay.isAbbreviated ? `${estimatedTransferValueDisplay.exact} ${settlementSymbol}` : undefined}
                   >
                     {estimatedTransferValueDisplay.display}
-                  </CurrencyAmount>
+                  </PaymentCurrencyAmount>
                 )}
               </strong>
             </div>

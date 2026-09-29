@@ -58,7 +58,15 @@ npm run build:testnet
 npm run build:mainnet
 ```
 
-`.env.testnet` and `.env.mainnet` select frontend/API/branding settings only. Supported networks, public RPC metadata, chain contracts, compliance modules, confirmations, and payment tokens still come from `GET /api/v1/chains` and `GET /api/v1/chains/{chainUid}/config`; do not add chain-specific addresses to either profile.
+`.env.testnet` and `.env.mainnet` select frontend/API/branding settings. Platform-supported networks, public RPC metadata, chain contracts, compliance modules, confirmations, and platform payment tokens still come from `GET /api/v1/chains` and `GET /api/v1/chains/{chainUid}/config`. The only chain-specific frontend exception is the Wallet Management Circle bridge-only Ethereum profile described below; it does not make Ethereum a platform investment/deployment network.
+
+`npm run build` and `npm run preview` default to the **mainnet** profile for production safety. Use `npm run build:testnet` / `npm run preview:testnet` explicitly for testnet deployments. The sidebar environment badge follows the currently selected backend chain (`isTestnet`) and only falls back to the deployment profile while chain data is not yet available.
+
+### Wallet Management bridge-only Ethereum
+
+Wallet Management keeps Circle USDC bridging independent from the platform network catalogue. The mainnet frontend adds Ethereum (chain `1`) and the testnet frontend adds Ethereum Sepolia (chain `11155111`) only to Wallet Management balance reads, Wagmi wallet switching, and Circle Bridge Kit routes. These bridge-only networks never appear in the application network selector, network-access workflow, token creation, compliance, deployment, or investment-chain permissions.
+
+The browser-safe values are configured per deployment profile with `VITE_BRIDGE_ETHEREUM_RPC_URL`, `VITE_BRIDGE_ETHEREUM_EXPLORER_URL`, and `VITE_BRIDGE_ETHEREUM_USDC_ADDRESS`. Mainnet uses Circle USDC on Ethereum and testnet uses Circle USDC on Ethereum Sepolia. Override the public RPC in deployment configuration if a dedicated provider is required.
 
 `npm install` generates the dependency lockfile for the newly added Wagmi, Viem, MetaMask Connect, and WalletConnect packages.
 

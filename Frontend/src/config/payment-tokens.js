@@ -57,6 +57,9 @@ export const normalizePaymentTokens = (payload) => {
         || item.logo?.imageUrl
         || item.icon?.url
         || item.icon?.imageUrl
+        || item.image?.url
+        || item.image?.imageUrl
+        || (typeof item.image === 'string' ? item.image : '')
         || item.metadata?.imageUrl
         || item.metadata?.logoUrl
         || item.metadata?.iconUrl

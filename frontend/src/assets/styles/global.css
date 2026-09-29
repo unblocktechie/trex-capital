@@ -8684,12 +8684,14 @@ button.issuer-dashboard-live-metric:disabled {
 
 .wallet-management-metrics {
   display: grid;
+  min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .wallet-management-metric {
   display: grid;
+  min-width: 0;
   grid-template-columns: 42px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
@@ -8728,11 +8730,34 @@ button.issuer-dashboard-live-metric:disabled {
 }
 
 .wallet-management-metric strong {
-  overflow: hidden;
-  font-size: 22px;
+  min-width: 0;
+  font-size: clamp(18px, 2vw, 22px);
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.wallet-management-metric__value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 5px;
+  row-gap: 1px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.wallet-management-metric__amount {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-management-metric__unit {
+  flex: 0 0 auto;
+  font-size: 0.64em;
+  font-weight: 750;
+  letter-spacing: 0.01em;
 }
 
 .wallet-management-metric em,
@@ -9119,12 +9144,15 @@ button.issuer-dashboard-live-metric:disabled {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* Keep the metric cards at a readable minimum width once the overview stacks.
+     Three columns here made the USDC amount truncate when the app sidebar was
+     still visible (for example around a 1024px viewport). */
   .wallet-management-metrics {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .wallet-management-metric--usdc {
-    grid-column: auto;
+    grid-column: 1 / -1;
   }
 
   .wallet-asset-row {
@@ -9239,7 +9267,18 @@ button.issuer-dashboard-live-metric:disabled {
   }
 
   .wallet-management-metric {
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 10px;
     padding: 14px;
+  }
+
+  .wallet-management-metric__icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .wallet-management-metric__value {
+    column-gap: 4px;
   }
 
   .wallet-asset-row {
@@ -10810,5 +10849,137 @@ button.issuer-dashboard-live-metric:disabled {
   .wallet-bridge-network-select__copy strong,
   .wallet-bridge-network-select__option strong {
     font-size: 0.72rem;
+  }
+}
+
+/* Responsive precision tooltip: portal-based so compact cards/tables cannot clip it. */
+.responsive-tooltip-trigger {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  border-radius: 4px;
+  outline: none;
+}
+
+.responsive-tooltip-trigger:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-500) 24%, transparent);
+}
+
+.responsive-value-tooltip {
+  position: fixed;
+  z-index: 1000;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 24px));
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  padding: 8px 10px;
+  box-shadow: 0 12px 30px rgba(22, 28, 45, 0.16);
+  color: var(--text-soft);
+  font-family: var(--font-body);
+  font-size: 0.73rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+/* ========================================================================== 
+   Mobile header network control refinement
+   - Never shows a clipped/broken chain label on narrow phones.
+   - The network icon remains a 44px tap target; tapping it opens the full
+     viewport-anchored menu where the complete chain name is always visible.
+   - Gives the wallet control the reclaimed width without changing desktop UI.
+   ========================================================================== */
+@media (max-width: 520px) {
+  .app-shell:not(.app-shell--onboarding) .app-network-switcher {
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    flex: 0 0 44px;
+  }
+
+  .app-shell:not(.app-shell--onboarding) .app-network-switcher > button {
+    position: relative;
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+    gap: 0;
+    padding: 5px;
+  }
+
+  .app-shell:not(.app-shell--onboarding) .app-network-switcher__label,
+  .app-shell:not(.app-shell--onboarding) .app-network-switcher__status-icon--chevron {
+    display: none;
+  }
+
+  .app-shell:not(.app-shell--onboarding) .app-network-switcher__status-icon--loading,
+  .app-shell:not(.app-shell--onboarding) .app-network-switcher__status-icon--locked {
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 12px;
+    height: 12px;
+    padding: 1px;
+    border-radius: 999px;
+    background: #fff;
+  }
+
+  .app-shell:not(.app-shell--onboarding) .app-network-switcher__icon {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+  }
+
+  .app-shell:not(.app-shell--onboarding) .app-network-switcher__attention {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 7px;
+    height: 7px;
+    border: 1.5px solid #fff;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.12);
+  }
+
+  .app-shell:not(.app-shell--onboarding) .header-wallet-control {
+    max-width: 150px;
+    flex: 1 1 120px;
+  }
+}
+
+@media (max-width: 390px) {
+  .app-shell:not(.app-shell--onboarding) .header-wallet-control {
+    max-width: none;
+    flex: 1 1 auto;
+  }
+
+  .app-shell:not(.app-shell--onboarding) .header-wallet-control > button > span:nth-child(2) small {
+    display: none;
+  }
+}
+
+@media (max-width: 340px) {
+  .app-shell:not(.app-shell--onboarding) .header-wallet-control > button > span:nth-child(2) {
+    display: none;
+  }
+
+  .app-shell:not(.app-shell--onboarding) .header-wallet-control {
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    flex: 0 0 44px;
+  }
+
+  .app-shell:not(.app-shell--onboarding) .header-wallet-control > button {
+    width: 44px;
+    min-width: 44px;
+    justify-content: center;
+    padding: 5px !important;
   }
 }

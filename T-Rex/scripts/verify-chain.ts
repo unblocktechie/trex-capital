@@ -2,7 +2,7 @@ import 'dotenv/config';
 import hre from 'hardhat';
 import * as fs from 'fs';
 import { ethers } from 'ethers';
-import { loadNetworkConfig, parseNetworkArg } from './lib/network-config';
+import { loadNetworkConfig } from './lib/network-config';
 
 /**
  * Verifies every contract recorded in deployments/<network>.json on that
@@ -105,7 +105,9 @@ async function verifyOne(target: VerifyTarget): Promise<'verified' | 'already-ve
 }
 
 async function main() {
-  const networkName = parseNetworkArg();
+  // Not parseNetworkArg(): `hardhat run` strips --network from process.argv
+  // before running this script, so that would silently fall back to sepolia.
+  const networkName = hre.network.name;
   const networkConfig = loadNetworkConfig(networkName);
 
   if (!fs.existsSync(networkConfig.deploymentsPath)) {
@@ -232,6 +234,8 @@ async function main() {
   for (const target of targets) {
     const outcome = await verifyOne(target);
     results[outcome].push(target.name);
+    // Etherscan free tier allows ~3 calls/sec; back off between contracts.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
   }
 
   console.log('\n=== Summary ===');

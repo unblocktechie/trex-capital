@@ -19,7 +19,7 @@ import { formatUnits, parseUnits } from 'viem';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { investmentApi } from '@/api/investments';
-import { CurrencyAmount } from '@/components/common/CurrencyAmount';
+import { PaymentCurrencyAmount } from '@/components/common/PaymentCurrencyAmount';
 import { TokenPriceValue } from '@/components/common/TokenPriceValue';
 import {
   InvestorTokenActionHeader,
@@ -402,8 +402,16 @@ export default function PurchaseTokenPage({
         : '';
   const estimatedPaymentDisplay = formatDecimalForDisplay(estimatedPaymentExact);
   const settlementSymbol = String(
-    platformQuote?.paymentTokenSymbol || token?.currency || '',
+    platformQuote?.paymentTokenSymbol || paymentContext.paymentTokenSymbol || token?.currency || '',
   ).trim().toUpperCase();
+  const settlementPaymentTokenAddress = clean(
+    platformQuote?.paymentToken
+    || platformQuote?.paymentTokenAddress
+    || purchase?.paymentTokenAddress
+    || paymentContext.paymentTokenAddress,
+  );
+  const settlementChainId = preparedChainId || context.chainId || token?.chainId || application?.chainId;
+  const settlementChainUid = token?.chainUid || application?.chainUid || '';
 
   const resolveWalletFundingIssue = useCallback((walletError) => getWalletFundingIssue(walletError, {
     walletAddress: walletGuard.wallet.address || preparedInvestorWallet,
@@ -1285,13 +1293,16 @@ export default function PurchaseTokenPage({
             <div className="investor-token-action-calculation">
               <span>Estimated payment token cost</span>
               <strong>
-                <CurrencyAmount
-                  symbol={settlementSymbol}
+                <PaymentCurrencyAmount
+                  paymentTokenAddress={settlementPaymentTokenAddress}
+                  paymentTokenSymbol={settlementSymbol}
+                  chainUid={settlementChainUid}
+                  chainId={settlementChainId}
                   title={estimatedPaymentDisplay.isAbbreviated ? `${estimatedPaymentDisplay.exact} ${settlementSymbol}` : undefined}
                   ariaLabel={estimatedPaymentDisplay.isAbbreviated ? `${estimatedPaymentDisplay.exact} ${settlementSymbol}` : undefined}
                 >
                   {estimatedPaymentDisplay.display || '—'}
-                </CurrencyAmount>
+                </PaymentCurrencyAmount>
               </strong>
             </div>
             {platformQuoteLoading ? <p className="investor-token-action-field-hint">Checking the latest price…</p> : null}
@@ -1340,9 +1351,14 @@ export default function PurchaseTokenPage({
               <span>Price per unit</span>
               <strong>
                 {tokenPriceExact ? (
-                  <CurrencyAmount symbol={settlementSymbol}>
+                  <PaymentCurrencyAmount
+                    paymentTokenAddress={settlementPaymentTokenAddress}
+                    paymentTokenSymbol={settlementSymbol}
+                    chainUid={settlementChainUid}
+                    chainId={settlementChainId}
+                  >
                     <TokenPriceValue value={tokenPriceExact} />
-                  </CurrencyAmount>
+                  </PaymentCurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
@@ -1354,13 +1370,16 @@ export default function PurchaseTokenPage({
               <span>Estimated payment token cost</span>
               <strong>
                 {isPositiveDecimal(estimatedPaymentExact) ? (
-                  <CurrencyAmount
-                    symbol={settlementSymbol}
+                  <PaymentCurrencyAmount
+                    paymentTokenAddress={settlementPaymentTokenAddress}
+                    paymentTokenSymbol={settlementSymbol}
+                    chainUid={settlementChainUid}
+                    chainId={settlementChainId}
                     title={estimatedPaymentDisplay.isAbbreviated ? `${estimatedPaymentDisplay.exact} ${settlementSymbol}` : undefined}
                     ariaLabel={estimatedPaymentDisplay.isAbbreviated ? `${estimatedPaymentDisplay.exact} ${settlementSymbol}` : undefined}
                   >
                     {estimatedPaymentDisplay.display}
-                  </CurrencyAmount>
+                  </PaymentCurrencyAmount>
                 ) : '—'}
               </strong>
             </div>
@@ -1612,7 +1631,14 @@ export default function PurchaseTokenPage({
                   </span>
                   <span className="investor-token-purchase-history__cell" data-label="payment token amount" role="cell">
                     <strong>
-                      <CurrencyAmount symbol={row?.paymentTokenSymbol || token?.currency || ''}>{displayServerAmount(row?.usdtAmount)}</CurrencyAmount>
+                      <PaymentCurrencyAmount
+                        paymentTokenAddress={paymentContextOf(row, token, application).paymentTokenAddress || settlementPaymentTokenAddress}
+                        paymentTokenSymbol={row?.paymentTokenSymbol || settlementSymbol}
+                        chainUid={settlementChainUid}
+                        chainId={row?.chainId || settlementChainId}
+                      >
+                        {displayServerAmount(row?.usdtAmount)}
+                      </PaymentCurrencyAmount>
                     </strong>
                   </span>
                   <span className="investor-token-purchase-history__cell" data-label="Status" role="cell">

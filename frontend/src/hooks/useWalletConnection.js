@@ -99,22 +99,26 @@ export function useWalletConnection(requiredChainId) {
   const isSupportedChain = web3Config.supportedChains.some(
     (chain) => chain.id === connection.chainId,
   );
+  const isConfiguredWalletChain = web3Config.walletChains.some(
+    (chain) => chain.id === connection.chainId,
+  );
 
   const balanceQuery = useBalance({
     address: connection.address,
-    chainId: isSupportedChain ? connection.chainId : undefined,
+    chainId: isConfiguredWalletChain ? connection.chainId : undefined,
     query: {
       // Wagmi throws a technical ChainNotConfiguredError when a connected wallet
-      // is on a chain that is not registered in the app config. Avoid making the
-      // balance request until the wallet is on one of the supported chains.
-      enabled: Boolean(connection.address && connection.chainId && isSupportedChain),
+      // is on a chain that is not registered in the wallet config. Bridge-only
+      // networks (such as Ethereum) are registered with Wagmi but deliberately
+      // remain outside the platform-supported investment chain catalogue.
+      enabled: Boolean(connection.address && connection.chainId && isConfiguredWalletChain),
       refetchInterval: 20_000,
       meta: { silent: true },
     },
   });
 
   const switchChain = async (chainId, connectorOverride) => {
-    const targetChain = web3Config.supportedChains.find((chain) => chain.id === chainId);
+    const targetChain = web3Config.walletChains.find((chain) => chain.id === Number(chainId));
     const activeConnector = connectorOverride || connection.connector;
 
     if (!targetChain) {
@@ -177,10 +181,14 @@ export function useWalletConnection(requiredChainId) {
     switchChain,
     requiredChain,
     supportedChains: web3Config.supportedChains,
+    walletChains: web3Config.walletChains,
     walletConnectConfigured: web3Config.walletConnectConfigured,
     isCorrectNetwork,
     isSupportedChain,
+    isConfiguredWalletChain,
+    isBridgeOnlyChain: connection.isConnected && isConfiguredWalletChain && !isSupportedChain,
     isUnsupportedNetwork: connection.isConnected && !isSupportedChain,
+    isUnknownNetwork: connection.isConnected && !isConfiguredWalletChain,
     isBusy:
       connectMutation.isPending ||
       disconnectMutation.isPending ||
@@ -192,7 +200,7 @@ export function useWalletConnection(requiredChainId) {
     switchingChainId: switchMutation.variables?.chainId || providerSwitchingChainId,
     balance: balanceQuery.data,
     balanceLabel:
-      !isSupportedChain && connection.isConnected
+      !isConfiguredWalletChain && connection.isConnected
         ? 'Unavailable on this network'
         : balanceQuery.isPending
           ? 'Loading balance…'

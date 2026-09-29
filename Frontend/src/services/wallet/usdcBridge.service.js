@@ -2,6 +2,9 @@ import { BridgeKit } from '@circle-fin/bridge-kit';
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2';
 import { formatUnits, isAddress, parseUnits } from 'viem';
 import { estimateWalletNativeGasBudget, readWalletNativeBalance, readWalletTokenBalance, resolveNativeRpcDecimals } from './walletAssets.service';
+import { bridgeStepState, bridgeTransactionHash, isBridgeStepEventComplete, isBridgeStepEventFailed, isUsdcBridgeResultComplete, normalizeBridgeStepName } from './usdcBridgeLifecycle';
+
+export { bridgeStepState, bridgeTransactionHash, isBridgeStepEventComplete, isBridgeStepEventFailed, isUsdcBridgeResultComplete, normalizeBridgeStepName } from './usdcBridgeLifecycle';
 
 const clean = (value) => String(value ?? '').trim();
 const GAS_BUFFER_BPS = 12_500n;
@@ -221,23 +224,89 @@ export const revalidateUsdcBridgeSession = async (session) => {
 };
 
 const failedBridgeStep = (result) => (Array.isArray(result?.steps) ? result.steps : []).find((step) => step?.error);
+const FINAL_MINT_EVENT_TIMEOUT_MS = 10 * 60_000;
+
+const mergeObservedBridgeEvents = (result, observedEvents) => {
+  if (!result || !observedEvents?.size) return result;
+  const steps = Array.isArray(result.steps) ? [...result.steps] : [];
+  observedEvents.forEach((payload, name) => {
+    const index = steps.findIndex((step) => normalizeBridgeStepName(step) === name);
+    const existing = index >= 0 ? steps[index] : { name };
+    const txHash = bridgeTransactionHash(payload);
+    const state = isBridgeStepEventFailed(payload)
+      ? 'error'
+      : isBridgeStepEventComplete(payload)
+        ? 'success'
+        : bridgeStepState(payload) || existing.state;
+    const next = {
+      ...existing,
+      ...(state ? { state } : {}),
+      ...(txHash ? { txHash } : {}),
+      ...(payload?.explorerUrl || payload?.values?.explorerUrl || payload?.data?.explorerUrl
+        ? { explorerUrl: clean(payload?.explorerUrl || payload?.values?.explorerUrl || payload?.data?.explorerUrl) }
+        : {}),
+      ...(payload?.error || payload?.values?.error || payload?.data?.error
+        ? { error: payload?.error || payload?.values?.error || payload?.data?.error }
+        : {}),
+    };
+    if (index >= 0) steps[index] = next;
+    else steps.push(next);
+  });
+  return { ...result, steps };
+};
+
 export const executeUsdcBridgeSession = async ({ session, onEvent }) => {
   if (!session?.preflight?.ok) throw new Error('Bridge validation is incomplete. Review the bridge again before confirming.');
-  const handler = (payload) => onEvent?.(payload);
+
+  const observedEvents = new Map();
+  let settleFinalMint;
+  let finalMintSettled = false;
+  const finalMintEvent = new Promise((resolve) => { settleFinalMint = resolve; });
+  const settleMint = (payload) => {
+    if (finalMintSettled) return;
+    finalMintSettled = true;
+    settleFinalMint(payload);
+  };
+  const handler = (payload) => {
+    const name = normalizeBridgeStepName(payload);
+    if (name) observedEvents.set(name, payload);
+    onEvent?.(payload);
+    if (name === 'mint' && (isBridgeStepEventComplete(payload) || isBridgeStepEventFailed(payload))) settleMint(payload);
+  };
+
   session.kit.on('*', handler);
   try {
     let result = await session.kit.bridge(session.params);
+
+    // Bridge Kit can report a successful orchestration result while an EIP-5792
+    // destination wallet request is still open. Keep the event subscription and
+    // UI lifecycle alive until the mint event proves that the final MetaMask
+    // confirmation has actually submitted (or failed).
+    result = mergeObservedBridgeEvents(result, observedEvents);
+    if (result?.state === 'success' && !isUsdcBridgeResultComplete(result)) {
+      let timeoutId;
+      const timeout = new Promise((resolve) => {
+        timeoutId = globalThis.setTimeout(() => resolve(null), FINAL_MINT_EVENT_TIMEOUT_MS);
+      });
+      await Promise.race([finalMintEvent, timeout]);
+      globalThis.clearTimeout(timeoutId);
+      result = mergeObservedBridgeEvents(result, observedEvents);
+    }
+
     const failed = failedBridgeStep(result);
     if (result?.state === 'error' && failed?.error) {
       try {
         result = await session.kit.retry(result, { from: session.adapter, to: session.adapter });
+        result = mergeObservedBridgeEvents(result, observedEvents);
       } catch {
         // Preserve the original partial result when Circle reports that this
         // failure is not actionable through BridgeKit.retry().
       }
     }
     return result;
-  } finally { session.kit.off('*', handler); }
+  } finally {
+    settleMint(null);
+    session.kit.off('*', handler);
+  }
 };
-export const normalizeBridgeStepName = (payload) => clean(payload?.method || payload?.values?.name || payload?.name || payload?.action).replace(/^bridge\./i, '').toLowerCase();
 export const bridgeExplorerUrl = (payload) => clean(payload?.explorerUrl || payload?.values?.explorerUrl || payload?.values?.data?.explorerUrl || payload?.data?.explorerUrl);

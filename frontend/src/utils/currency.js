@@ -78,16 +78,30 @@ export const multiplyDecimalStrings = (left, right) => {
   return canonicalDecimalString(formatScaledDecimal(a.digits * b.digits, a.scale + b.scale));
 };
 
-const roundDecimal = (value, maximumFractionDigits) => {
+const roundDecimalForDisplay = (value, maximumFractionDigits) => {
   const parts = decimalParts(value);
-  if (!parts) return '';
+  if (!parts) return { canonical: '', display: '' };
 
   const targetScale = Math.max(0, Math.floor(Number(maximumFractionDigits) || 0));
-  if (parts.scale <= targetScale) return parts.canonical;
+  if (parts.scale <= targetScale) {
+    return { canonical: parts.canonical, display: groupCanonicalDecimal(parts.canonical) };
+  }
 
   const divisor = 10n ** BigInt(parts.scale - targetScale);
   const rounded = (parts.digits + (divisor / 2n)) / divisor;
-  return canonicalDecimalString(formatScaledDecimal(rounded, targetScale));
+  const fixed = formatScaledDecimal(rounded, targetScale);
+  const canonical = canonicalDecimalString(fixed);
+
+  // When precision had to be reduced, retain the full requested display scale.
+  // This keeps values such as 1.0000002 visibly represented as 1.000000 while
+  // the exact value remains available in the tooltip.
+  if (targetScale === 0) return { canonical, display: groupCanonicalDecimal(canonical) };
+
+  const raw = rounded.toString().padStart(targetScale + 1, '0');
+  const whole = raw.slice(0, -targetScale) || '0';
+  const fraction = raw.slice(-targetScale);
+  const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return { canonical, display: `${groupedWhole}.${fraction}` };
 };
 
 /**
@@ -118,11 +132,11 @@ export const formatDecimalForDisplay = (
     };
   }
 
-  const rounded = roundDecimal(canonical, maximumFractionDigits);
+  const rounded = roundDecimalForDisplay(canonical, maximumFractionDigits);
   return {
-    display: groupCanonicalDecimal(rounded),
+    display: rounded.display,
     exact,
-    isAbbreviated: rounded !== canonical,
+    isAbbreviated: rounded.canonical !== canonical,
     isTiny: false,
   };
 };

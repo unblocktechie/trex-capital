@@ -72,11 +72,13 @@ export function WalletControl({
   context = 'organization',
   purpose = '',
   requiredChainId,
+  allowConfiguredWalletChains = false,
 }) {
   const [open, setOpen] = useState(false);
   const wallet = useWalletConnection(requiredChainId);
   const isInvestorContext = context === 'investor';
   const isRegisteredAction = isInvestorContext && purpose === 'registered-action';
+  const isReadyNetwork = wallet.isCorrectNetwork || (allowConfiguredWalletChains && wallet.isConfiguredWalletChain);
 
   useEffect(() => {
     const handleOpenWalletControl = (event) => {
@@ -177,7 +179,7 @@ export function WalletControl({
       ? 'investor-wallet-connect-trigger min-h-12 w-full justify-center border-transparent px-4 text-white'
       : 'min-h-12 w-full justify-center border-transparent bg-[linear-gradient(135deg,var(--primary-500),var(--primary-600))] px-4 text-white shadow-[0_10px_24px_rgba(47,128,237,0.24)] hover:-translate-y-0.5 hover:border-transparent hover:bg-[linear-gradient(135deg,var(--primary-600),var(--primary-700))] hover:text-white hover:shadow-[0_14px_30px_rgba(47,128,237,0.3)]'
     : wallet.isConnected
-      ? wallet.isCorrectNetwork
+      ? isReadyNetwork
         ? 'border-emerald-200 bg-emerald-50/80 text-slate-950 hover:border-emerald-300 hover:bg-emerald-50'
         : 'border-rose-200 bg-rose-50 text-slate-950 hover:border-rose-300'
       : 'border-slate-200 bg-white text-slate-950 hover:border-[var(--primary-400)] hover:bg-[var(--primary-50)]';
@@ -214,7 +216,7 @@ export function WalletControl({
               <span
                 className={cn(
                   'absolute right-0 bottom-0 size-2 rounded-full border border-white',
-                  wallet.isCorrectNetwork ? 'bg-emerald-500' : 'bg-rose-500',
+                  isReadyNetwork ? 'bg-emerald-500' : 'bg-rose-500',
                 )}
                 aria-hidden="true"
               />
@@ -281,7 +283,7 @@ export function WalletControl({
             <div
               className={cn(
                 'rounded-3xl border p-5',
-                wallet.isCorrectNetwork
+                isReadyNetwork
                   ? 'border-emerald-200 bg-emerald-50/70'
                   : 'border-rose-200 bg-rose-50',
               )}
@@ -293,7 +295,7 @@ export function WalletControl({
                     <span
                       className={cn(
                         'absolute right-0.5 bottom-0.5 size-2.5 rounded-full border-2 border-white',
-                        wallet.isCorrectNetwork ? 'bg-emerald-500' : 'bg-rose-500',
+                        isReadyNetwork ? 'bg-emerald-500' : 'bg-rose-500',
                       )}
                       aria-hidden="true"
                     />
@@ -332,7 +334,7 @@ export function WalletControl({
               </div>
             </div>
 
-            {!wallet.isCorrectNetwork ? (
+            {!isReadyNetwork ? (
               <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-800">
                 <strong className="block font-semibold">Wrong network connected</strong>
                 <span className="mt-1 block">
@@ -345,7 +347,7 @@ export function WalletControl({
             <div>
               <div className="mb-3 flex items-center gap-2">
                 <Network size={17} className="text-[var(--primary-600)]" />
-                <h3 className="m-0 text-sm font-semibold text-slate-950">Required network</h3>
+                <h3 className="m-0 text-sm font-semibold text-slate-950">{allowConfiguredWalletChains ? 'Platform network' : 'Required network'}</h3>
               </div>
               <button
                 type="button"
@@ -360,7 +362,7 @@ export function WalletControl({
               >
                 <span>
                   <strong className="block text-sm">{wallet.requiredChain.name}</strong>
-                  <small className="block text-xs opacity-70">{isInvestorContext ? 'Required investor network' : 'Required token network'}</small>
+                  <small className="block text-xs opacity-70">{allowConfiguredWalletChains ? 'Platform actions use this network' : isInvestorContext ? 'Required investor network' : 'Required token network'}</small>
                 </span>
                 {wallet.isCorrectNetwork ? (
                   <Check size={18} />
@@ -375,7 +377,7 @@ export function WalletControl({
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              {!wallet.isCorrectNetwork ? (
+              {!isReadyNetwork ? (
                 <button
                   type="button"
                   disabled={wallet.isBusy}

@@ -146,10 +146,10 @@ export function AppNetworkSwitcher({ pathname = '', onboardingOnly = false, netw
                   : undefined
         }
       >
-        <span className="grid size-7 shrink-0 place-items-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-slate-500">
+        <span className="app-network-switcher__icon grid size-7 shrink-0 place-items-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-slate-500">
           {activeImage ? <img src={activeImage} alt="" className="size-full object-contain p-0.5" /> : <Network size={15} />}
         </span>
-        <span className="min-w-0 flex-1">
+        <span className="app-network-switcher__label min-w-0 flex-1">
           <small className="hidden text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 sm:block">
             {network.isNetworkLocked || deploymentNetworkPinned ? 'Network locked' : 'Network'}
           </small>
@@ -157,17 +157,17 @@ export function AppNetworkSwitcher({ pathname = '', onboardingOnly = false, netw
         </span>
         {showAttentionDot ? (
           <span
-            className="size-2 shrink-0 rounded-full bg-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.12)]"
+            className="app-network-switcher__attention size-2 shrink-0 rounded-full bg-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.12)]"
             title={attentionTitle}
             aria-hidden="true"
           />
         ) : null}
         {network.isNetworkLockLoading ? (
-          <RefreshCcw className="shrink-0 animate-spin text-slate-400" size={14} />
+          <RefreshCcw className="app-network-switcher__status-icon app-network-switcher__status-icon--loading shrink-0 animate-spin text-slate-400" size={14} />
         ) : network.isNetworkLocked || deploymentNetworkPinned ? (
-          <Lock className="shrink-0 text-slate-400" size={14} aria-hidden="true" />
+          <Lock className="app-network-switcher__status-icon app-network-switcher__status-icon--locked shrink-0 text-slate-400" size={14} aria-hidden="true" />
         ) : (
-          <ChevronDown className={cn('shrink-0 text-slate-400 transition', open && 'rotate-180')} size={15} />
+          <ChevronDown className={cn('app-network-switcher__status-icon app-network-switcher__status-icon--chevron shrink-0 text-slate-400 transition', open && 'rotate-180')} size={15} />
         )}
       </button>
 

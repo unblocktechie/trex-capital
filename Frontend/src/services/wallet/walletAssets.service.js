@@ -28,17 +28,17 @@ const normalizeAddress = (value, label) => {
 
 const publicClientFor = (chainId) => {
   const id = Number(chainId);
-  const chain = web3Config.getChainById(id);
-  const record = web3Config.getChainRecordById(id);
-  if (!chain || !record?.publicRpcUrl) throw new Error('This wallet network is not supported by the application.');
+  const chain = web3Config.getWalletChainById(id);
+  const record = web3Config.getWalletChainRecordById(id);
+  if (!chain || !record?.publicRpcUrl) throw new Error('This wallet network is not configured for wallet balances.');
   if (!clients.has(id)) clients.set(id, createPublicClient({ chain, transport: http(record.publicRpcUrl) }));
   return clients.get(id);
 };
 
 export async function readWalletNativeBalance({ walletAddress, chainId }) {
   const account = normalizeAddress(walletAddress, 'Wallet address');
-  const chain = web3Config.getChainById(chainId);
-  if (!chain) throw new Error('This wallet network is not supported by the application.');
+  const chain = web3Config.getWalletChainById(chainId);
+  if (!chain) throw new Error('This wallet network is not configured for wallet balances.');
   const rawBalance = await publicClientFor(chain.id).getBalance({ address: account });
   const decimals = resolveNativeRpcDecimals({ chainId: chain.id, symbol: chain.nativeCurrency?.symbol, configuredDecimals: chain.nativeCurrency?.decimals });
   return {
@@ -68,8 +68,8 @@ export async function readWalletTokenBalance({ tokenAddress, walletAddress, chai
 }
 
 export async function estimateWalletNativeGasBudget({ chainId, gasUnits }) {
-  const chain = web3Config.getChainById(chainId);
-  if (!chain) throw new Error('This wallet network is not supported by the application.');
+  const chain = web3Config.getWalletChainById(chainId);
+  if (!chain) throw new Error('This wallet network is not configured for wallet balances.');
   const units = Number(gasUnits);
   if (!Number.isSafeInteger(units) || units <= 0) throw new Error('Fallback gas units are not configured correctly.');
   const client = publicClientFor(chain.id);

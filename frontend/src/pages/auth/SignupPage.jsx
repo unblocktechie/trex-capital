@@ -264,10 +264,7 @@ export default function SignupPage() {
             type="checkbox"
             {...register('terms')}
           />
-          <span>
-            I agree to the <a href="/terms">Terms</a> and{' '}
-            <a href="/privacy">Privacy Policy</a>.
-          </span>
+          <span>I agree to the Terms and Privacy Policy.</span>
         </label>
         {errors.terms ? (
           <p className="-mt-1.5 mb-0 text-xs font-semibold text-[var(--danger-500)]">

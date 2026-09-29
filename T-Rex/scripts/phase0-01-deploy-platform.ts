@@ -98,10 +98,27 @@ async function main() {
     return contract;
   }
 
-  /** Same idea, but for a one-off state-changing tx (not a deploy) keyed by a flag in the deployment file. */
-  async function runOnce(flagKey: string, description: string, send: (nonce: number) => Promise<ethers.ContractTransactionResponse>) {
+  /**
+   * Same idea, but for a one-off state-changing tx (not a deploy) keyed by a
+   * flag in the deployment file. The flag alone isn't enough: a crash between
+   * the tx confirming and the flag being saved would make a resume resend it,
+   * which reverts (e.g. "caller is not the owner" after transferOwnership)
+   * and blocks every later re-run. So `checkDone` asks the chain first.
+   */
+  async function runOnce(
+    flagKey: string,
+    description: string,
+    checkDone: () => Promise<boolean>,
+    send: (nonce: number) => Promise<ethers.ContractTransactionResponse>,
+  ) {
     if (deployment[flagKey]) {
       console.log(`\nSkipping "${description}" — already done`);
+      return;
+    }
+    if (await checkDone()) {
+      console.log(`\nSkipping "${description}" — already true on-chain (from an interrupted earlier run)`);
+      deployment[flagKey] = true;
+      save();
       return;
     }
     console.log(`\n${description}...`);
@@ -165,8 +182,18 @@ async function main() {
     tirImplementation: await tirImpl.getAddress(),
     mcImplementation: await mcImpl.getAddress(),
   };
-  await runOnce('versionRegistered', 'Registering implementation version 4.1.3 on the TREXImplementationAuthority', (nonce) =>
-    (trexIA as any).addAndUseTREXVersion(versionStruct, contractsStruct, { nonce }),
+  await runOnce(
+    'versionRegistered',
+    'Registering implementation version 4.1.3 on the TREXImplementationAuthority',
+    async () => {
+      const current = await (trexIA as any).getCurrentVersion();
+      return (
+        Number(current.major) === versionStruct.major &&
+        Number(current.minor) === versionStruct.minor &&
+        Number(current.patch) === versionStruct.patch
+      );
+    },
+    (nonce) => (trexIA as any).addAndUseTREXVersion(versionStruct, contractsStruct, { nonce }),
   );
 
   // --- 4. Deploy TREXFactory, wire it to the identity factory ---
@@ -175,8 +202,11 @@ async function main() {
     await trexIA.getAddress(),
     await identityFactory.getAddress(),
   ]);
-  await runOnce('trexFactoryAllowedOnIdentityFactory', 'Allowing TREXFactory to deploy identities through the ONCHAINID factory', async (nonce) =>
-    (identityFactory as any).addTokenFactory(await trexFactory.getAddress(), { nonce }),
+  await runOnce(
+    'trexFactoryAllowedOnIdentityFactory',
+    'Allowing TREXFactory to deploy identities through the ONCHAINID factory',
+    async () => (identityFactory as any).isTokenFactory(await trexFactory.getAddress()),
+    async (nonce) => (identityFactory as any).addTokenFactory(await trexFactory.getAddress(), { nonce }),
   );
 
   // --- 5. Deploy TREXGateway (the front door apps will call) and give it ownership of the Factory ---
@@ -185,11 +215,17 @@ async function main() {
     await trexFactory.getAddress(),
     false, // public deployments disabled — only approved deployers (our backend) can call deployTREXSuite
   ]);
-  await runOnce('trexFactoryOwnershipTransferred', 'Transferring TREXFactory ownership to TREXGateway (required — deployTREXSuite is onlyOwner)', async (nonce) =>
-    (trexFactory as any).transferOwnership(await trexGateway.getAddress(), { nonce }),
+  await runOnce(
+    'trexFactoryOwnershipTransferred',
+    'Transferring TREXFactory ownership to TREXGateway (required — deployTREXSuite is onlyOwner)',
+    async () => (await (trexFactory as any).owner()).toLowerCase() === (await trexGateway.getAddress()).toLowerCase(),
+    async (nonce) => (trexFactory as any).transferOwnership(await trexGateway.getAddress(), { nonce }),
   );
-  await runOnce('deployerApprovedOnGateway', 'Approving the deployer wallet itself as an approved deployer on the Gateway (so Step 2 can call it)', (nonce) =>
-    (trexGateway as any).addDeployer(deployer.address, { nonce }),
+  await runOnce(
+    'deployerApprovedOnGateway',
+    'Approving the deployer wallet itself as an approved deployer on the Gateway (so Step 2 can call it)',
+    async () => (trexGateway as any).isDeployer(deployer.address),
+    (nonce) => (trexGateway as any).addDeployer(deployer.address, { nonce }),
   );
 
   save();

@@ -2,6 +2,7 @@ import { createConfig, createStorage, http } from 'wagmi';
 import { injected, walletConnect } from 'wagmi/connectors';
 import { defineChain } from 'viem';
 import { env } from '@/config/env';
+import { bridgeOnlyChainRecords as configuredBridgeOnlyChainRecords } from '@/config/bridgeNetworks';
 
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
 const firstText = (...values) => {
@@ -23,6 +24,9 @@ const positiveInteger = (value) => {
 
 let chainRecords = [];
 let supportedChains = [];
+let bridgeChainRecords = [];
+let bridgeChains = [];
+let walletChains = [];
 let requiredChain = null;
 
 const unwrapRows = (payload) => {
@@ -148,6 +152,18 @@ export const initializeWeb3Chains = (payload) => {
     return true;
   });
   supportedChains = chainRecords.map(toWagmiChain);
+
+  // Wallet-management bridge networks are deliberately not added to the
+  // platform-supported chain catalogue. They are only registered with Wagmi
+  // so balance reads and wallet switching can work for the independent bridge
+  // feature (for example Ethereum when the backend does not expose Ethereum).
+  const platformChainIds = new Set(chainRecords.map((item) => item.chainId));
+  bridgeChainRecords = configuredBridgeOnlyChainRecords.filter(
+    (item) => item?.isActive !== false && !platformChainIds.has(item.chainId),
+  );
+  bridgeChains = bridgeChainRecords.map(toWagmiChain);
+  walletChains = [...supportedChains, ...bridgeChains];
+
   const defaultRecord = chainRecords.find((item) => item.isDefault) || chainRecords[0];
   requiredChain = supportedChains.find((item) => item.id === defaultRecord.chainId) || supportedChains[0];
   return chainRecords;
@@ -175,8 +191,14 @@ export const getChainRecordById = (chainId) =>
 export const getChainRecordByUid = (chainUid) =>
   chainRecords.find((item) => item.chainUid === String(chainUid || '')) || null;
 
+export const getBridgeChainRecordById = (chainId) =>
+  bridgeChainRecords.find((item) => item.chainId === Number(chainId)) || null;
+
+export const getWalletChainRecordById = (chainId) =>
+  getChainRecordById(chainId) || getBridgeChainRecordById(chainId);
+
 export const createWagmiConfig = () => {
-  if (!supportedChains.length || !requiredChain) {
+  if (!supportedChains.length || !walletChains.length || !requiredChain) {
     throw new Error('Blockchain networks must be loaded before the wallet provider is created.');
   }
 
@@ -203,11 +225,11 @@ export const createWagmiConfig = () => {
   }
 
   const transports = Object.fromEntries(
-    supportedChains.map((chain) => [chain.id, http(getChainRecordById(chain.id)?.publicRpcUrl)]),
+    walletChains.map((chain) => [chain.id, http(getWalletChainRecordById(chain.id)?.publicRpcUrl)]),
   );
 
   return createConfig({
-    chains: supportedChains,
+    chains: walletChains,
     connectors,
     multiInjectedProviderDiscovery: false,
     storage: createStorage({
@@ -222,13 +244,24 @@ export const web3Config = {
   get walletConnectConfigured() { return Boolean(env.walletConnectProjectId); },
   get requiredChain() { return requiredChain; },
   get supportedChains() { return supportedChains; },
+  get bridgeChains() { return bridgeChains; },
+  get walletChains() { return walletChains; },
   get chainRecords() { return chainRecords; },
+  get bridgeChainRecords() { return bridgeChainRecords; },
   get defaultChainRecord() {
     return requiredChain ? getChainRecordById(requiredChain.id) : null;
   },
   getChainById(chainId) {
     return supportedChains.find((item) => item.id === Number(chainId)) || null;
   },
+  getBridgeChainById(chainId) {
+    return bridgeChains.find((item) => item.id === Number(chainId)) || null;
+  },
+  getWalletChainById(chainId) {
+    return walletChains.find((item) => item.id === Number(chainId)) || null;
+  },
   getChainRecordById,
+  getBridgeChainRecordById,
+  getWalletChainRecordById,
   getChainRecordByUid,
 };

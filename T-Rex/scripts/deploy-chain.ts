@@ -11,6 +11,16 @@ import { loadNetworkConfig, parseNetworkArg } from './lib/network-config';
  *
  * Usage: npm run deploy:chain -- --network <name>
  *
+ * Resumable by default: every step script skips any contract it already
+ * deployed (recorded in deployments/<network>.json, and still has code
+ * on-chain) and only deploys what's missing. So if a run fails partway
+ * through (RPC hiccup, timeout, out of gas, etc.), just re-run the exact
+ * same command — it'll skip everything already on-chain and continue from
+ * wherever it stopped.
+ *
+ * Pass --force to instead wipe deployments/<network>.json and redeploy this
+ * network completely from scratch (new addresses for everything).
+ *
  * To add a new chain: add an entry to networks.json, set its RPC URL env
  * var in .env, then run this.
  */
@@ -29,11 +39,11 @@ function main() {
   // Validates the network is actually defined before running anything.
   const networkConfig = loadNetworkConfig(networkName);
 
-  if (fs.existsSync(networkConfig.deploymentsPath) && !force) {
-    throw new Error(
-      `${networkConfig.deploymentsPath} already exists — "${networkName}" looks already deployed. ` +
-        'Delete the file (or move it aside) if you really want to redeploy from scratch, or pass --force.',
-    );
+  if (force && fs.existsSync(networkConfig.deploymentsPath)) {
+    fs.rmSync(networkConfig.deploymentsPath);
+    console.log(`--force: removed ${networkConfig.deploymentsPath}, redeploying "${networkName}" from scratch.\n`);
+  } else if (fs.existsSync(networkConfig.deploymentsPath)) {
+    console.log(`${networkConfig.deploymentsPath} already exists — resuming "${networkName}", skipping anything already deployed on-chain.\n`);
   }
 
   console.log(`=== Deploying chain "${networkName}" (${STEPS.length} steps) ===\n`);

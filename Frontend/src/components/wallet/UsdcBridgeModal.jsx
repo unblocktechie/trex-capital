@@ -7,7 +7,7 @@ import { TokenIcon } from '@/components/common/TokenIcon';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { readWalletNativeBalance, readWalletTokenBalance } from '@/services/wallet/walletAssets.service';
-import { bridgeExplorerUrl, createUsdcBridgeSession, executeUsdcBridgeSession, getUsdcBridgeRoute, normalizeBridgeStepName, revalidateUsdcBridgeSession } from '@/services/wallet/usdcBridge.service';
+import { bridgeExplorerUrl, createUsdcBridgeSession, executeUsdcBridgeSession, getUsdcBridgeRoute, isBridgeStepEventComplete, isBridgeStepEventFailed, isUsdcBridgeResultComplete, normalizeBridgeStepName, revalidateUsdcBridgeSession } from '@/services/wallet/usdcBridge.service';
 import { shortenWalletAddress } from '@/utils/wallet';
 
 const clean = (value) => String(value ?? '').trim();
@@ -255,6 +255,7 @@ export function UsdcBridgeModal({ open, onClose, walletAddress, getProvider, swi
   const [steps, setSteps] = useState({});
   const [stepLinks, setStepLinks] = useState({});
   const [result, setResult] = useState(null);
+  const bridgeInFlightRef = useRef(false);
 
   const route = useMemo(() => {
     const id = routeId || validInitial;
@@ -315,24 +316,50 @@ export function UsdcBridgeModal({ open, onClose, walletAddress, getProvider, swi
     const name = normalizeBridgeStepName(payload);
     const index = bridgeSteps.findIndex((step) => step.id === name);
     if (index < 0) return;
-    setSteps((current) => { const next = { ...current }; bridgeSteps.forEach((step, i) => { if (i <= index) next[step.id] = 'complete'; }); if (bridgeSteps[index + 1]) next[bridgeSteps[index + 1].id] = 'active'; return next; });
+    const complete = isBridgeStepEventComplete(payload);
+    const failed = isBridgeStepEventFailed(payload);
+    setSteps((current) => {
+      const next = { ...current };
+      bridgeSteps.forEach((step, i) => { if (i < index) next[step.id] = 'complete'; });
+      next[name] = complete ? 'complete' : 'active';
+      if (complete && bridgeSteps[index + 1]) next[bridgeSteps[index + 1].id] = 'active';
+      if (failed) next[name] = 'active';
+      return next;
+    });
     const url = bridgeExplorerUrl(payload); if (url) setStepLinks((current) => ({ ...current, [name]: url }));
   };
   const handleExecute = async () => {
-    if (!session || bridging || !preflight?.ok) return;
+    if (!session || bridgeInFlightRef.current || bridging || !preflight?.ok) return;
+    // Set the ref synchronously before any wallet/provider call. This prevents a
+    // backdrop/Escape close from racing React's state update while MetaMask is
+    // opening or moving between the approval, burn and mint confirmations.
+    bridgeInFlightRef.current = true;
     setBridging(true); setError(''); let started = false;
     try {
       await switchWalletChain?.(route.source.chainId);
       const refreshed = await revalidateUsdcBridgeSession(session);
       setSession(refreshed); setEstimate(refreshed.estimate); setPreflight(refreshed.preflight); setStage('processing'); setSteps({ ...initialSteps(bridgeSteps), [bridgeSteps[0].id]: 'active' }); started = true;
       const bridgeResult = await executeUsdcBridgeSession({ session: refreshed, onEvent: handleBridgeEvent });
-      if (bridgeResult?.state === 'error') { const failed = (bridgeResult.steps || []).find((step) => step?.error); throw new Error(clean(failed?.error?.message || failed?.error || 'The bridge did not complete.')); }
+      if (!isUsdcBridgeResultComplete(bridgeResult)) {
+        const failed = (bridgeResult?.steps || []).find((step) => step?.error || /error|failed|failure|rejected|cancelled|canceled/i.test(clean(step?.state || step?.status)));
+        const detail = clean(failed?.error?.message || failed?.error || failed?.message);
+        throw new Error(detail || 'The bridge has not completed its final destination transaction yet.');
+      }
       setSteps(Object.fromEntries(bridgeSteps.map((step) => [step.id, 'complete']))); setResult(bridgeResult); setStage('success');
-      await Promise.allSettled([sourceGasQuery.refetch(), destinationGasQuery.refetch(), ...(!route.source.usdcIsNative ? [sourceUsdcQuery.refetch()] : []), onBridgeCompleted?.({ result: bridgeResult, route })]);
-    } catch (e) { setError(clean(e?.shortMessage || e?.message || e) || 'The bridge could not be completed.'); setStage(started ? 'error' : 'review'); }
-    finally { setBridging(false); }
+      // Notify the parent only after full-result validation so balance refresh
+      // and the completion toast can run. The modal intentionally remains open
+      // on its success screen until the user explicitly closes it.
+      await onBridgeCompleted?.({ result: bridgeResult, route, amount: clean(amount) });
+    } catch (e) {
+      bridgeInFlightRef.current = false;
+      setError(clean(e?.shortMessage || e?.message || e) || 'The bridge could not be completed.');
+      setStage(started ? 'error' : 'review');
+    } finally {
+      bridgeInFlightRef.current = false;
+      setBridging(false);
+    }
   };
-  const safeClose = () => { if (!bridging) onClose?.(); };
+  const safeClose = () => { if (!bridgeInFlightRef.current && !bridging) onClose?.(); };
   if (!routes.length || !route) return null;
 
   const footer = stage === 'amount' ? <><Button variant="secondary" onClick={safeClose}>Cancel</Button><Button loading={estimating} onClick={handleReview} disabled={!canReview}>Review bridge</Button></>
