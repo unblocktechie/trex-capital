@@ -43,8 +43,9 @@ import { loadNetworkConfig } from './lib/network-config';
  * five have their own standalone fallback verifiers for that case — see
  * verify-idfactory.ts, verify-large-contracts.ts, and verify-trexfactory.ts
  * (all wired together, network-aware, by verify-all.ts). On networks with a
- * native Etherscan explorer (sepolia, mainnet, ...) these five verify fine
- * right here and the fallback scripts aren't needed.
+ * native Etherscan explorer (sepolia, arbitrum, ...) the other four verify
+ * fine right here, but IdFactory still fails on its bytecode check and
+ * needs verify-idfactory.ts — verify-all.ts runs it on every network.
  */
 
 interface VerifyTarget {

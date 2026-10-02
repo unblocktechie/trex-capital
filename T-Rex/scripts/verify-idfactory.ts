@@ -29,6 +29,10 @@ import { loadNetworkConfig, parseNetworkArg } from './lib/network-config';
  * --address verifies an arbitrary IdFactory instead of the one recorded in
  * deployments/<network>.json — its constructor arg (implementationAuthority)
  * is read straight off-chain via the contract's own getter.
+ *
+ * Works on both explorer types: a network's own explorerApiUrl from
+ * networks.json if set (Blockscout-style, e.g. arc), otherwise Etherscan's
+ * V2 API (Arbiscan, Etherscan, ...).
  */
 
 interface NetworkJsonEntry {
@@ -43,18 +47,26 @@ function parseAddressArg(): string | undefined {
   return flagIndex !== -1 ? args[flagIndex + 1] : undefined;
 }
 
+// Networks without their own explorerApiUrl (arbitrum, sepolia, ...) are on
+// an Etherscan-family explorer, reached through Etherscan's unified V2 API
+// with the chain selected by the chainid parameter.
+const ETHERSCAN_V2_API_URL = 'https://api.etherscan.io/v2/api';
+
 function loadExplorerConfig(networkName: string) {
   const networksJsonPath = path.join(__dirname, '..', 'networks.json');
   const networksJson: Record<string, NetworkJsonEntry> = JSON.parse(fs.readFileSync(networksJsonPath, 'utf8'));
   const entry = networksJson[networkName];
-  if (!entry?.explorerApiUrl) {
-    throw new Error(`No explorerApiUrl set for network "${networkName}" in networks.json.`);
+  if (!entry) {
+    throw new Error(`Unknown network "${networkName}" in networks.json.`);
+  }
+  if (!entry.explorerApiUrl && entry.chainId === undefined) {
+    throw new Error(`networks.json entry "${networkName}" needs a chainId to verify through Etherscan's V2 API.`);
   }
   const apiKey = (entry.explorerApiKeyEnv ? process.env[entry.explorerApiKeyEnv] : undefined) || process.env.ETHERSCAN_API_KEY;
   if (!apiKey) {
     throw new Error(`Missing explorer API key for network "${networkName}" (set ${entry.explorerApiKeyEnv || 'ETHERSCAN_API_KEY'} in .env).`);
   }
-  return { apiUrl: entry.explorerApiUrl, apiKey, chainId: entry.chainId };
+  return { apiUrl: entry.explorerApiUrl || ETHERSCAN_V2_API_URL, apiKey, chainId: entry.chainId };
 }
 
 /** Loads the exact build-info (standard-JSON-input/output) the npm package itself was compiled with. */

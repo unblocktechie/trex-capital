@@ -3,7 +3,7 @@ import hre from 'hardhat';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ethers } from 'ethers';
-import { loadNetworkConfig, parseNetworkArg } from './lib/network-config';
+import { loadNetworkConfig } from './lib/network-config';
 
 /**
  * Standalone verifier for contracts whose minimal solc input is too big for
@@ -148,7 +148,8 @@ async function postVerify(
 }
 
 async function main() {
-  const networkName = parseNetworkArg();
+  // `hardhat run` strips --network from argv, so parseNetworkArg() would fall back to sepolia.
+  const networkName = hre.network.name;
   const networkConfig = loadNetworkConfig(networkName);
   const explorer = loadExplorerConfig(networkName);
 
